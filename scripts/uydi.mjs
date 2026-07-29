@@ -43,7 +43,7 @@ async function api(path, { method = 'GET', json, form, raw = false, auth = true 
   const headers = { Accept: 'application/json' };
   if (auth) {
     const token = loadToken();
-    if (!token) fail('尚未登录，请先运行: node uydi.mjs login');
+    if (!token) fail('Not logged in. Run: node uydi.mjs login');
     headers.Authorization = `Bearer ${token}`;
   }
   let body;
@@ -54,13 +54,13 @@ async function api(path, { method = 'GET', json, form, raw = false, auth = true 
     body = form; // FormData 由 fetch 自动设置 Content-Type
   }
   const res = await fetch(`${BASE_URL}${path}`, { method, headers, body });
-  if (res.status === 401) fail('登录已过期或 token 被撤销，请重新运行: node uydi.mjs login');
+  if (res.status === 401) fail('Session expired or token revoked. Run: node uydi.mjs login');
   if (raw) {
-    if (!res.ok) fail(`请求失败（HTTP ${res.status}）`);
+    if (!res.ok) fail(`Request failed (HTTP ${res.status})`);
     return res;
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) fail(data.error || `请求失败（HTTP ${res.status}）`);
+  if (!res.ok) fail(data.error || `Request failed (HTTP ${res.status})`);
   return data;
 }
 
@@ -127,7 +127,7 @@ async function loginPkce() {
   authUrl.searchParams.set('code_challenge', challenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
 
-  console.log('正在打开浏览器完成授权，如未自动打开请手动访问：\n');
+  console.log('Opening your browser to authorize. If it does not open automatically, visit:\n');
   console.log(`  ${authUrl.toString()}\n`);
   openBrowser(authUrl.toString());
 
@@ -183,10 +183,10 @@ async function loginDevice() {
     auth: false,
     json: { client_id: CLIENT_ID },
   });
-  console.log('请在浏览器中打开以下地址并输入设备码完成授权：\n');
-  console.log(`  地址：${dc.verification_uri}`);
-  console.log(`  设备码：${dc.user_code}\n`);
-  console.log(`（或直接打开 ${dc.verification_uri_complete}）\n等待授权中…`);
+  console.log('Open the URL below in a browser and enter the device code to authorize:\n');
+  console.log(`  URL:  ${dc.verification_uri}`);
+  console.log(`  Code: ${dc.user_code}\n`);
+  console.log(`(or open ${dc.verification_uri_complete} directly)\nWaiting for authorization…`);
   openBrowser(dc.verification_uri_complete);
 
   let interval = (dc.interval || 5) * 1000;
@@ -209,11 +209,11 @@ async function loginDevice() {
       interval += 5000;
       continue;
     }
-    if (data.error === 'access_denied') fail('授权被拒绝');
+    if (data.error === 'access_denied') fail('Authorization denied by the user');
     if (data.error === 'expired_token') break;
-    fail(data.error || '设备码轮询失败');
+    fail(data.error || 'Device code polling failed');
   }
-  fail('设备码已过期，请重新运行 login');
+  fail('Device code expired. Run login again');
 }
 
 async function cmdLogin(args) {
@@ -222,13 +222,13 @@ async function cmdLogin(args) {
     try {
       accessToken = await loginPkce();
     } catch (err) {
-      console.log(`\n浏览器授权未完成（${err.message}），降级为设备码流…\n`);
+      console.log(`\nBrowser authorization not completed (${err.message}); falling back to device code flow…\n`);
     }
   }
   if (!accessToken) accessToken = await loginDevice();
   saveToken(accessToken);
   const { user } = await api('/api/auth/me');
-  console.log(`\n✅ 登录成功：${user.email}（token 已保存至 ${CRED_FILE}）`);
+  console.log(`\n✅ Logged in as ${user.email} (token saved to ${CRED_FILE})`);
 }
 
 async function cmdLogout() {
@@ -240,7 +240,7 @@ async function cmdLogout() {
     }).catch(() => {});
   }
   if (existsSync(CRED_FILE)) rmSync(CRED_FILE);
-  console.log('已退出登录并撤销 token');
+  console.log('Logged out: token revoked and local credentials removed');
 }
 
 // ---------- 业务命令 ----------
@@ -263,7 +263,7 @@ const fmtTime = (ts) => new Date(ts * 1000).toISOString().replace('T', ' ').slic
 async function cmdVoices() {
   const { voices } = await api('/api/voices');
   if (!voices.length) {
-    console.log('（暂无声音，用 design 或 clone 创建一个）');
+    console.log('(no voices yet — create one with design or clone)');
     return;
   }
   for (const v of voices) {
@@ -273,61 +273,61 @@ async function cmdVoices() {
 
 async function cmdDeleteVoice(args) {
   const id = args._[0];
-  if (!id) fail('用法: delete-voice <voiceId>');
+  if (!id) fail('Usage: delete-voice <voiceId>');
   await api(`/api/voices/${id}`, { method: 'DELETE' });
-  console.log(`已删除声音 ${id}`);
+  console.log(`Deleted voice ${id}`);
 }
 
 /** 用 Bearer 下载站内音频（如 /api/audio/xxx）到本地文件 */
 async function downloadAudio(urlPath, outPath) {
   const res = await api(urlPath, { raw: true });
   writeFileSync(outPath, Buffer.from(await res.arrayBuffer()));
-  console.log(`音频已保存：${resolve(outPath)}`);
+  console.log(`Audio saved: ${resolve(outPath)}`);
 }
 
 async function cmdDesign(args) {
-  if (!args.name || !args.prompt) {
-    fail('用法: design --name <名称> --prompt <声音描述> [--preview-text 文本] [--provider qwen|cosyvoice] [-o preview.wav]');
+  if (!args.name || !args.prompt || !args['preview-text']) {
+    fail('Usage: design --name <name> --prompt <voice description> --preview-text <text> [--provider qwen|cosyvoice] [-o preview.wav]');
   }
-  console.log('正在设计声音（约需 10-30 秒，消耗积分）…');
+  console.log('Designing voice (takes ~10-30s, consumes credits)…');
   const { voice } = await api('/api/voices/design', {
     method: 'POST',
     json: {
       provider: args.provider || 'qwen',
       name: args.name,
       voicePrompt: args.prompt,
-      ...(args['preview-text'] ? { previewText: args['preview-text'] } : {}),
+      previewText: args['preview-text'],
     },
   });
-  console.log(`✅ 声音已创建：${voice.id}（${voice.name}）`);
+  console.log(`✅ Voice created: ${voice.id} (${voice.name})`);
   if (args.output && voice.previewUrl) await downloadAudio(voice.previewUrl, args.output);
 }
 
 async function cmdClone(args) {
   if (!args.name || !args.file) {
-    fail('用法: clone --name <名称> --file <wav/mp3/m4a 文件> [--provider qwen|cosyvoice]');
+    fail('Usage: clone --name <name> --file <wav/mp3/m4a file> [--provider qwen|cosyvoice]');
   }
-  if (!existsSync(args.file)) fail(`文件不存在：${args.file}`);
-  console.log('正在上传样本并复刻声音（约需 10-60 秒，消耗积分）…');
+  if (!existsSync(args.file)) fail(`File not found: ${args.file}`);
+  console.log('Uploading sample and cloning voice (takes ~10-60s, consumes credits)…');
   const form = new FormData();
   form.set('provider', args.provider || 'qwen');
   form.set('name', args.name);
   form.set('file', new Blob([readFileSync(args.file)]), basename(args.file));
   const { voice } = await api('/api/voices/clone', { method: 'POST', form });
-  console.log(`✅ 声音已复刻：${voice.id}（${voice.name}）`);
+  console.log(`✅ Voice cloned: ${voice.id} (${voice.name})`);
 }
 
 async function cmdTts(args) {
   if (!args.voice || !args.text) {
-    fail('用法: tts --voice <voiceId> --text "要合成的文本" -o out.wav');
+    fail('Usage: tts --voice <voiceId> --text "text to speak" -o out.wav');
   }
   const out = args.output || 'out.wav';
-  console.log('正在合成语音（消耗积分：1 积分 / 10 字符）…');
+  console.log('Synthesizing speech (1 credit / 10 chars)…');
   const { synthesis } = await api('/api/synthesize', {
     method: 'POST',
     json: { voiceId: args.voice, text: args.text },
   });
-  console.log(`✅ 合成完成：${synthesis.id}（${synthesis.chars} chars）`);
+  console.log(`✅ Synthesis complete: ${synthesis.id} (${synthesis.chars} chars)`);
   await downloadAudio(synthesis.audioUrl, out);
 }
 
@@ -335,7 +335,7 @@ async function cmdHistory(args) {
   const limit = Number(args.limit || 20);
   const { syntheses } = await api('/api/syntheses');
   if (!syntheses.length) {
-    console.log('（暂无合成记录）');
+    console.log('(no synthesis history yet)');
     return;
   }
   for (const s of syntheses.slice(0, limit)) {
@@ -346,22 +346,22 @@ async function cmdHistory(args) {
 
 // ---------- 入口 ----------
 
-const HELP = `Uydi Voice CLI — AI 声音设计 / 复刻 / 合成（${BASE_URL}）
+const HELP = `Uydi Voice CLI — AI voice design / cloning / synthesis (${BASE_URL})
 
-用法: node uydi.mjs <command> [options]
+Usage: node uydi.mjs <command> [options]
 
-  login [--device]        OAuth 登录（默认浏览器授权，--device 强制设备码流）
-  logout                  撤销 token 并删除本地凭证
-  whoami                  当前登录账号
-  credits                 积分余额与价格
-  voices                  列出我的声音
-  delete-voice <id>       删除声音
-  design --name <n> --prompt <描述> [--preview-text t] [--provider qwen|cosyvoice] [-o preview.wav]
-  clone --name <n> --file <音频文件> [--provider qwen|cosyvoice]
-  tts --voice <voiceId> --text "文本" -o out.wav
-  history [--limit n]     合成历史
+  login [--device]        OAuth login (browser flow by default; --device forces device code flow)
+  logout                  Revoke token and delete local credentials
+  whoami                  Current account
+  credits                 Credit balance and pricing
+  voices                  List my voices
+  delete-voice <id>       Delete a voice
+  design --name <n> --prompt <desc> --preview-text <t> [--provider qwen|cosyvoice] [-o preview.wav]
+  clone --name <n> --file <audio file> [--provider qwen|cosyvoice]
+  tts --voice <voiceId> --text "text" -o out.wav
+  history [--limit n]     Synthesis history
 
-环境变量: UYDI_BASE_URL 可覆盖服务地址（默认 https://uydi.com）`;
+Env: UYDI_BASE_URL overrides the service URL (default https://uydi.com)`;
 
 const COMMANDS = {
   login: cmdLogin,
@@ -383,7 +383,7 @@ if (!cmd || cmd === 'help' || cmd === '--help') {
 }
 const handler = COMMANDS[cmd];
 if (!handler) {
-  console.error(`未知命令: ${cmd}\n`);
+  console.error(`Unknown command: ${cmd}\n`);
   console.log(HELP);
   process.exit(1);
 }

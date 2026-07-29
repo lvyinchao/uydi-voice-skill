@@ -36,7 +36,7 @@ node scripts/uydi.mjs login
   prints a URL (https://uydi.com/activate) and an 8-character code (`XXXX-XXXX`) for the
   user to enter on any device. Use `login --device` to force this mode.
 - IMPORTANT: the login must be completed by the human user in a browser. If a command
-  fails with a 401 / "尚未登录" error, ask the user to run the login and wait.
+  fails with a 401 / "Not logged in" error, ask the user to run the login and wait.
 
 ## Commands
 
@@ -46,7 +46,8 @@ node scripts/uydi.mjs credits               # credit balance and pricing
 node scripts/uydi.mjs voices                # list voices (id, kind, name, status)
 node scripts/uydi.mjs delete-voice <id>     # delete a voice permanently
 
-# Design a brand-new voice from a text description (costs credits):
+# Design a brand-new voice from a text description (costs credits;
+# --name, --prompt and --preview-text are all required):
 node scripts/uydi.mjs design --name "Warm Narrator" \
   --prompt "A warm, deep male narrator voice, slow pace, documentary style" \
   --preview-text "Hello, this is a preview." -o preview.wav
@@ -71,6 +72,17 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 2. **Speak in the user's own voice**: ask for a 10–20 s clean recording → `clone` →
    `tts` with the new voice id.
 3. **Reuse an existing voice**: `voices` to find the id → `tts`.
+
+## Security & trust
+
+- The CLI is a single zero-dependency script (`scripts/uydi.mjs`, Node.js built-ins only)
+  — fully auditable before running, no install step, no postinstall hooks.
+- Downloads can be verified: `https://uydi.com/downloads/uydi-voice-skill.zip.sha256`
+  holds the SHA-256 of the official zip (`shasum -a 256 -c` after download).
+- The token only grants access to the user's own Uydi voices/credits; it never touches
+  the account password. The user can revoke it anytime with `logout` or from the website.
+- Approval always happens on uydi.com in the user's browser; the script never asks for
+  or handles the account password.
 
 ## Notes
 
