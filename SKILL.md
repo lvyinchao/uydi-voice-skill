@@ -88,6 +88,8 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 
 - Every design / clone / tts call consumes real credits from the user's account
   (`credits` shows pricing). Confirm with the user before large batch synthesis.
+- Voice slots are limited per plan (free: 1 voice, Pro: 5). If design/clone fails with a
+  quota error, list voices with `voices` and ask the user which one to `delete-voice`.
 - Voice cloning requires the user to own the voice or have explicit permission.
 - Output audio is WAV. Text over 2000 characters must be split into multiple `tts` runs.
 - Set `UYDI_BASE_URL` to target a different deployment (e.g. a local dev server).
