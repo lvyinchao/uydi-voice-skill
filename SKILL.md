@@ -1,12 +1,24 @@
 ---
 name: uydi-voice
 description: >
-  Design AI voices, clone voices from audio samples, and synthesize speech using the
-  Uydi voice platform (https://uydi.com). Use this skill when the user asks to create
-  or design a custom voice, clone their own voice from a recording, convert text to
-  speech / generate narration audio, list or manage their Uydi voices, check their
-  Uydi credits, or review their synthesis history. Requires Node.js 18+ and a one-time
-  OAuth login in the browser.
+  Uydi Voice enables an AI agent to design custom voices, clone a user's authorized
+  voice sample, and synthesize narration with the Uydi voice platform
+  (https://uydi.com). Use it when a user asks to create or describe a voice, clone
+  their own voice from a recording, convert text to speech, generate narration audio,
+  list or manage Uydi voices, check Uydi credits, or review synthesis history. It
+  requires Node.js 18+ and a one-time OAuth approval in the user's browser.
+version: 1.0.1
+metadata:
+  openclaw:
+    requires:
+      bins:
+        - node
+    envVars:
+      - name: UYDI_BASE_URL
+        required: false
+        description: Optional Uydi deployment URL for development or self-hosted testing.
+    emoji: "🔊"
+    homepage: https://uydi.com
 ---
 
 # Uydi Voice
@@ -20,6 +32,14 @@ a single zero-dependency CLI script.
 - Node.js 18 or newer (`node --version`) — the script uses only built-in modules.
 - A Uydi account (register free at https://uydi.com).
 - All commands run as: `node scripts/uydi.mjs <command>` (relative to this skill directory).
+
+## What the skill can do
+
+- **Design** a new AI voice from a natural-language brief and generate a WAV preview.
+- **Clone** a voice from a 10–20 second WAV, MP3, or M4A sample when the user owns the
+  voice or has explicit permission.
+- **Synthesize** speech from text with a selected Uydi voice and save a WAV file.
+- **Manage** the authenticated account's voice list, synthesis history, and credit balance.
 
 ## First-time login (one-time, needs the user)
 
@@ -93,3 +113,17 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 - Voice cloning requires the user to own the voice or have explicit permission.
 - Output audio is WAV. Text over 2000 characters must be split into multiple `tts` runs.
 - Set `UYDI_BASE_URL` to target a different deployment (e.g. a local dev server).
+
+## Validation before handoff
+
+1. Run `node scripts/uydi.mjs whoami` to confirm the intended Uydi account.
+2. Run `node scripts/uydi.mjs credits` before any operation that can consume credits.
+3. After `design`, `clone`, or `tts`, confirm that the CLI reports a voice ID or output
+   WAV path, and provide that result to the user.
+4. If a request fails, do not blindly repeat a paid operation. Check `history` or
+   `voices` first and explain the returned error.
+
+## Version history
+
+- **1.0.1** — Adds the required idempotency header for clone and synthesis requests.
+- **1.0.0** — Initial public marketplace release.

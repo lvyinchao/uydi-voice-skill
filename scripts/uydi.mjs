@@ -6,7 +6,7 @@
  * 用法：node uydi.mjs <command> [options]，详见 SKILL.md 或 `node uydi.mjs help`。
  */
 import { createServer } from 'node:http';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename, resolve } from 'node:path';
@@ -39,13 +39,14 @@ function saveToken(accessToken) {
 
 // ---------- HTTP 封装 ----------
 
-async function api(path, { method = 'GET', json, form, raw = false, auth = true } = {}) {
+async function api(path, { method = 'GET', json, form, raw = false, auth = true, idempotencyKey } = {}) {
   const headers = { Accept: 'application/json' };
   if (auth) {
     const token = loadToken();
     if (!token) fail('Not logged in. Run: node uydi.mjs login');
     headers.Authorization = `Bearer ${token}`;
   }
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   let body;
   if (json !== undefined) {
     headers['Content-Type'] = 'application/json';
@@ -313,7 +314,11 @@ async function cmdClone(args) {
   form.set('provider', args.provider || 'qwen');
   form.set('name', args.name);
   form.set('file', new Blob([readFileSync(args.file)]), basename(args.file));
-  const { voice } = await api('/api/voices/clone', { method: 'POST', form });
+  const { voice } = await api('/api/voices/clone', {
+    method: 'POST',
+    form,
+    idempotencyKey: randomUUID(),
+  });
   console.log(`✅ Voice cloned: ${voice.id} (${voice.name})`);
 }
 
@@ -326,6 +331,7 @@ async function cmdTts(args) {
   const { synthesis } = await api('/api/synthesize', {
     method: 'POST',
     json: { voiceId: args.voice, text: args.text },
+    idempotencyKey: randomUUID(),
   });
   console.log(`✅ Synthesis complete: ${synthesis.id} (${synthesis.chars} chars)`);
   await downloadAudio(synthesis.audioUrl, out);
