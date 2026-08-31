@@ -257,6 +257,7 @@ async function cmdCredits() {
   console.log(
     `Pricing: design=${c.pricing.design}, clone=${c.pricing.clone}, tts=1 credit / ${c.pricing.ttsUnitChars} chars`
   );
+  if (c.canvasQuota) console.log(`Voice Canvas: ${c.canvasQuota.maxChars} characters per project`);
 }
 
 const fmtTime = (ts) => new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 19);
@@ -268,7 +269,8 @@ async function cmdVoices() {
     return;
   }
   for (const v of voices) {
-    console.log(`${v.id}  [${v.kind}/${v.provider}]  ${v.name}  (${v.status}, ${fmtTime(v.createdAt)})`);
+    const languages = Array.isArray(v.supportedLanguages) ? `  languages=${v.supportedLanguages.join(',')}` : '';
+    console.log(`${v.id}  [${v.kind}/${v.provider}]  ${v.name}  (${v.status}, ${fmtTime(v.createdAt)})${languages}`);
   }
 }
 
@@ -350,9 +352,193 @@ async function cmdHistory(args) {
   }
 }
 
+// ---------- Voice Canvas ----------
+
+const LANGUAGE_CODES = new Set(['zh', 'en', 'ja', 'ko', 'fr', 'de', 'ru', 'pt', 'th', 'id', 'vi', 'es', 'it', 'ms', 'fil', 'ar']);
+
+function positionalId(args, usage) {
+  const id = args._[0];
+  if (!id) fail(`Usage: ${usage}`);
+  return encodeURIComponent(id);
+}
+
+function positiveNumber(value, fallback, label) {
+  const number = Number(value ?? fallback);
+  if (!Number.isFinite(number) || number <= 0) fail(`${label} must be a positive number`);
+  return number;
+}
+
+function loadCanvasDocument(file) {
+  if (!file) fail('Usage: canvas-save <projectId> --file <canvas.json>');
+  if (!existsSync(file)) fail(`File not found: ${file}`);
+  let document;
+  try {
+    document = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    fail(`Invalid JSON file: ${file}`);
+  }
+  if (!document || typeof document !== 'object' || Array.isArray(document)) fail('Canvas JSON must be an object');
+  if (!Number.isInteger(document.version)) fail('Canvas JSON must include the current integer project version');
+  if (!Array.isArray(document.nodes) || document.nodes.length < 1) fail('Canvas JSON must include at least one node');
+  for (let index = 0; index < document.nodes.length; index++) {
+    const node = document.nodes[index];
+    if (!node || typeof node !== 'object') fail(`Node ${index + 1} must be an object`);
+    if (!LANGUAGE_CODES.has(node.language)) fail(`Node ${index + 1} has an unsupported language code`);
+    if (node.languageSource !== 'auto' && node.languageSource !== 'manual') fail(`Node ${index + 1} needs languageSource auto or manual`);
+    if (typeof node.text !== 'string' || node.text.length > 600) fail(`Node ${index + 1} text must be 0-600 characters`);
+    const pause = node.pauseAfterMs ?? 300;
+    if (!Number.isInteger(pause) || pause < 0 || pause > 3000) fail(`Node ${index + 1} pauseAfterMs must be an integer from 0 to 3000`);
+    if (node.voice !== null && (typeof node.voice !== 'object' || !['system', 'user'].includes(node.voice.type) || !node.voice.id)) {
+      fail(`Node ${index + 1} voice must be null or { type: "system"|"user", id, name }`);
+    }
+  }
+  return document;
+}
+
+async function cmdSystemVoices(args) {
+  const language = args.language;
+  if (!LANGUAGE_CODES.has(language)) fail('Usage: system-voices --language <languageCode> [--search <text>] [--limit n]');
+  const params = new URLSearchParams({ language, limit: String(Math.min(100, Math.floor(positiveNumber(args.limit, 50, 'limit')))) });
+  if (args.search) params.set('search', args.search);
+  if (args.gender) params.set('gender', args.gender);
+  if (args.age) params.set('age', args.age);
+  if (args.scenario) params.set('scenario', args.scenario);
+  if (args.cursor) params.set('cursor', args.cursor);
+  const result = await api(`/api/system-voices?${params}`);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCanvasList() {
+  const { projects } = await api('/api/dubbing/projects');
+  if (!projects.length) {
+    console.log('(no Voice Canvas projects yet — create one with canvas-create)');
+    return;
+  }
+  for (const project of projects) {
+    console.log(`${project.id}  v${project.version}  [${project.status}]  ${project.title}  (${fmtTime(project.updatedAt)})`);
+  }
+}
+
+async function cmdCanvasCreate(args) {
+  const result = await api('/api/dubbing/projects', {
+    method: 'POST',
+    json: { title: typeof args.title === 'string' ? args.title : undefined },
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCanvasShow(args) {
+  const id = positionalId(args, 'canvas-show <projectId>');
+  console.log(JSON.stringify(await api(`/api/dubbing/projects/${id}`), null, 2));
+}
+
+async function cmdCanvasSave(args) {
+  const id = positionalId(args, 'canvas-save <projectId> --file <canvas.json>');
+  const document = loadCanvasDocument(args.file);
+  const result = await api(`/api/dubbing/projects/${id}/nodes`, {
+    method: 'PUT',
+    json: { version: document.version, title: document.title, nodes: document.nodes },
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCanvasDelete(args) {
+  const id = positionalId(args, 'canvas-delete <projectId>');
+  await api(`/api/dubbing/projects/${id}`, { method: 'DELETE' });
+  console.log(`Deleted Voice Canvas project ${args._[0]}`);
+}
+
+async function currentCanvasVersion(projectId) {
+  const detail = await api(`/api/dubbing/projects/${encodeURIComponent(projectId)}`);
+  return detail;
+}
+
+async function canvasEstimate(projectId, version) {
+  return api(`/api/dubbing/projects/${encodeURIComponent(projectId)}/render-estimate?version=${encodeURIComponent(version)}`);
+}
+
+async function cmdCanvasEstimate(args) {
+  const projectId = args._[0];
+  if (!projectId) fail('Usage: canvas-estimate <projectId> [--version n]');
+  const detail = await currentCanvasVersion(projectId);
+  const version = args.version === undefined ? detail.project.version : Number(args.version);
+  if (!Number.isInteger(version)) fail('version must be an integer');
+  console.log(JSON.stringify(await canvasEstimate(projectId, version), null, 2));
+}
+
+async function waitForCanvasRender(renderId, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let lastProgress = '';
+  while (Date.now() < deadline) {
+    const detail = await api(`/api/dubbing/renders/${encodeURIComponent(renderId)}`);
+    const render = detail.render;
+    const progress = `${render.status}:${render.completedNodes}/${render.totalNodes}`;
+    if (progress !== lastProgress) {
+      console.log(`Render ${render.status}: ${render.completedNodes}/${render.totalNodes} nodes`);
+      lastProgress = progress;
+    }
+    if (render.status === 'completed') return detail;
+    if (render.status === 'failed') fail(render.error || `Voice Canvas render ${renderId} failed`);
+    await sleep(2000);
+  }
+  fail(`Render is still running after ${timeoutSeconds} seconds. Check it with: canvas-status ${renderId}`);
+}
+
+function defaultCanvasOutput(title) {
+  const safe = String(title || 'voice-canvas').replace(/[^a-z0-9 _-]/gi, '').trim();
+  return `${safe || 'voice-canvas'}.wav`;
+}
+
+async function cmdCanvasRender(args) {
+  const projectId = args._[0];
+  if (!projectId) fail('Usage: canvas-render <projectId> [--version n] [--key idempotency-key] [--no-wait] [--timeout seconds] [-o output.wav]');
+  const detail = await currentCanvasVersion(projectId);
+  const version = args.version === undefined ? detail.project.version : Number(args.version);
+  if (!Number.isInteger(version)) fail('version must be an integer');
+  const estimate = await canvasEstimate(projectId, version);
+  console.log(`Estimate: ${estimate.estimatedCost} credits, balance ${estimate.balance}, ${estimate.totalChars}/${estimate.characterLimit} characters, ${estimate.reusedNodes} nodes reused`);
+  if (!estimate.sufficient) fail(`Insufficient credits: ${estimate.estimatedCost} needed, ${estimate.balance} available`);
+
+  const key = typeof args.key === 'string' ? args.key : randomUUID();
+  console.log(`Idempotency-Key: ${key}`);
+  const started = await api(`/api/dubbing/projects/${encodeURIComponent(projectId)}/renders`, {
+    method: 'POST',
+    json: { version },
+    idempotencyKey: key,
+  });
+  console.log(`Render started: ${started.renderId} (${started.status})`);
+  if (args['no-wait']) {
+    console.log(JSON.stringify(started, null, 2));
+    return;
+  }
+  const completed = await waitForCanvasRender(started.renderId, positiveNumber(args.timeout, 1800, 'timeout'));
+  const out = args.output || defaultCanvasOutput(detail.project.title);
+  await downloadAudio(`${completed.render.audioUrl}?download=1`, out);
+  console.log(`✅ Voice Canvas complete: ${completed.render.id} (${completed.render.durationMs ?? 0} ms, ${completed.render.totalCost} credits)`);
+}
+
+async function cmdCanvasStatus(args) {
+  const renderId = args._[0];
+  if (!renderId) fail('Usage: canvas-status <renderId> [--wait] [--timeout seconds] [-o output.wav]');
+  const detail = args.wait
+    ? await waitForCanvasRender(renderId, positiveNumber(args.timeout, 1800, 'timeout'))
+    : await api(`/api/dubbing/renders/${encodeURIComponent(renderId)}`);
+  console.log(JSON.stringify(detail, null, 2));
+  if (args.output) {
+    if (detail.render.status !== 'completed' || !detail.render.audioUrl) fail('The render is not complete yet');
+    await downloadAudio(`${detail.render.audioUrl}?download=1`, args.output);
+  }
+}
+
+async function cmdCanvasRenders(args) {
+  const limit = Math.floor(positiveNumber(args.limit, 20, 'limit'));
+  const { renders } = await api('/api/dubbing/renders');
+  console.log(JSON.stringify(renders.slice(0, limit), null, 2));
+}
+
 // ---------- 入口 ----------
 
-const HELP = `Uydi Voice CLI — AI voice design / cloning / synthesis (${BASE_URL})
+const HELP = `Uydi Voice CLI — AI voice design / cloning / synthesis / Voice Canvas (${BASE_URL})
 
 Usage: node uydi.mjs <command> [options]
 
@@ -366,6 +552,16 @@ Usage: node uydi.mjs <command> [options]
   clone --name <n> --file <audio file> [--provider qwen|cosyvoice]
   tts --voice <voiceId> --text "text" -o out.wav
   history [--limit n]     Synthesis history
+  system-voices --language <code> [--search text] [--gender value] [--age value] [--scenario value] [--limit n]
+  canvas-list             List Voice Canvas projects
+  canvas-create [--title text]
+  canvas-show <projectId>
+  canvas-save <projectId> --file <canvas.json>
+  canvas-estimate <projectId> [--version n]
+  canvas-render <projectId> [--version n] [--key value] [--no-wait] [--timeout seconds] [-o output.wav]
+  canvas-status <renderId> [--wait] [--timeout seconds] [-o output.wav]
+  canvas-renders [--limit n]
+  canvas-delete <projectId>
 
 Env: UYDI_BASE_URL overrides the service URL (default https://uydi.com)`;
 
@@ -380,6 +576,16 @@ const COMMANDS = {
   clone: cmdClone,
   tts: cmdTts,
   history: cmdHistory,
+  'system-voices': cmdSystemVoices,
+  'canvas-list': cmdCanvasList,
+  'canvas-create': cmdCanvasCreate,
+  'canvas-show': cmdCanvasShow,
+  'canvas-save': cmdCanvasSave,
+  'canvas-estimate': cmdCanvasEstimate,
+  'canvas-render': cmdCanvasRender,
+  'canvas-status': cmdCanvasStatus,
+  'canvas-renders': cmdCanvasRenders,
+  'canvas-delete': cmdCanvasDelete,
 };
 
 const [cmd, ...rest] = process.argv.slice(2);
