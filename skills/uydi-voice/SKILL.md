@@ -2,13 +2,15 @@
 name: uydi-voice
 description: >
   Uydi Voice enables an AI agent to design custom voices, clone a user's authorized
-  voice sample, and synthesize narration with the Uydi voice platform
+  voice sample, synthesize narration, and produce multi-voice Voice Canvas projects
+  with the Uydi voice platform
   (https://uydi.com). Use it when a user asks to create or describe a voice, clone
   their own voice from a recording, convert text to speech, generate narration audio,
-  list or manage Uydi voices, check Uydi credits, or review synthesis history. It
-  requires Node.js 18+ and a one-time OAuth approval in the user's browser.
-version: 1.0.1
+  arrange multiple speakers or languages into one audio file, list or manage Uydi
+  voices, check Uydi credits, or review synthesis history. It requires Node.js 18+
+  and a one-time OAuth approval in the user's browser.
 metadata:
+  version: "1.1.0"
   openclaw:
     requires:
       bins:
@@ -24,8 +26,8 @@ metadata:
 # Uydi Voice
 
 Use the Uydi voice platform from any agent: voice design (text description → new voice),
-voice cloning (audio sample → digital voice), and text-to-speech synthesis, all through
-a single zero-dependency CLI script.
+voice cloning (audio sample → digital voice), text-to-speech synthesis, and multi-voice
+Voice Canvas production, all through a single zero-dependency CLI script.
 
 ## Requirements
 
@@ -39,6 +41,8 @@ a single zero-dependency CLI script.
 - **Clone** a voice from a 10–20 second WAV, MP3, or M4A sample when the user owns the
   voice or has explicit permission.
 - **Synthesize** speech from text with a selected Uydi voice and save a WAV file.
+- **Produce a Voice Canvas** from an ordered sequence of language-aware voices, scripts,
+  and pauses, then download one continuous 24 kHz WAV.
 - **Manage** the authenticated account's voice list, synthesis history, and credit balance.
 
 ## First-time login (one-time, needs the user)
@@ -82,6 +86,25 @@ node scripts/uydi.mjs history --limit 10    # recent syntheses
 node scripts/uydi.mjs logout                # revoke token + delete local credentials
 ```
 
+### Voice Canvas
+
+```bash
+node scripts/uydi.mjs system-voices --language en --search narrator
+node scripts/uydi.mjs canvas-list
+node scripts/uydi.mjs canvas-create --title "Episode 1"
+node scripts/uydi.mjs canvas-show <projectId>
+node scripts/uydi.mjs canvas-save <projectId> --file canvas.json
+node scripts/uydi.mjs canvas-estimate <projectId>
+node scripts/uydi.mjs canvas-render <projectId> -o episode-1.wav
+node scripts/uydi.mjs canvas-status <renderId> --wait -o episode-1.wav
+node scripts/uydi.mjs canvas-renders --limit 10
+node scripts/uydi.mjs canvas-delete <projectId>
+```
+
+For the editable JSON schema, language codes, voice selection, optimistic versioning,
+credit checks, background rendering, and safe retry behavior, read
+[references/voice-canvas.md](references/voice-canvas.md) before using Canvas commands.
+
 Optional flags: `--provider qwen|cosyvoice` on design/clone (default `qwen`, the
 general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 
@@ -92,6 +115,8 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 2. **Speak in the user's own voice**: ask for a 10–20 s clean recording → `clone` →
    `tts` with the new voice id.
 3. **Reuse an existing voice**: `voices` to find the id → `tts`.
+4. **Multi-speaker production**: choose compatible voices → create a canvas → save the
+   ordered nodes → estimate credits → render and deliver the merged WAV.
 
 ## Security & trust
 
@@ -108,10 +133,17 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 
 - Every design / clone / tts call consumes real credits from the user's account
   (`credits` shows pricing). Confirm with the user before large batch synthesis.
+- Voice Canvas preview, saving, estimation, reused nodes, merging, playback, and download
+  are free. `canvas-render` charges only nodes that need newly generated audio. Show the
+  exact estimate first; an explicit request to render is sufficient authorization.
 - Voice slots are limited per plan (free: 1 voice, Pro: 5). If design/clone fails with a
   quota error, list voices with `voices` and ask the user which one to `delete-voice`.
 - Voice cloning requires the user to own the voice or have explicit permission.
 - Output audio is WAV. Text over 2000 characters must be split into multiple `tts` runs.
+- Canvas has no application-level node cap; each node accepts up to 600 characters and a
+  0–3000 ms pause. Total project text is 2,000 characters on Free and 20,000 on Pro.
+- `canvas-delete` permanently deletes the project and stored audio. Use it only when the
+  user explicitly asks to delete that exact project.
 - Set `UYDI_BASE_URL` to target a different deployment (e.g. a local dev server).
 
 ## Validation before handoff
@@ -120,10 +152,15 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 2. Run `node scripts/uydi.mjs credits` before any operation that can consume credits.
 3. After `design`, `clone`, or `tts`, confirm that the CLI reports a voice ID or output
    WAV path, and provide that result to the user.
-4. If a request fails, do not blindly repeat a paid operation. Check `history` or
-   `voices` first and explain the returned error.
+4. After `canvas-render`, confirm the render reaches `completed`, the merged WAV exists,
+   and report its render ID, duration, charged credits, and absolute output path.
+5. If a request fails, do not blindly repeat a paid operation. Check `history`, `voices`,
+   `canvas-show`, or `canvas-status` first and explain the returned error. Reuse the
+   printed Canvas idempotency key when retrying an uncertain render request.
 
 ## Version history
 
+- **1.1.0** — Adds language-aware Voice Canvas project editing, credit estimation,
+  background rendering, status polling, completed-render history, and WAV download.
 - **1.0.1** — Adds the required idempotency header for clone and synthesis requests.
 - **1.0.0** — Initial public marketplace release.
