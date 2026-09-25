@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process';
 
 const BASE_URL = (process.env.UYDI_BASE_URL || 'https://uydi.com').replace(/\/+$/, '');
 const CLIENT_ID = 'uydi-skill';
-const CRED_DIR = join(homedir(), '.uydi');
+const CRED_DIR = process.env.UYDI_CONFIG_DIR || join(homedir(), '.uydi');
 const CRED_FILE = join(CRED_DIR, 'credentials.json');
 const CALLBACK_TIMEOUT_MS = 120_000;
 
@@ -293,28 +293,87 @@ async function cmdDesign(args) {
     fail('Usage: design --name <name> --prompt <voice description> --preview-text <text> [--provider qwen|cosyvoice] [-o preview.wav]');
   }
   console.log('Designing voice (takes ~10-30s, consumes credits)…');
-  const { voice } = await api('/api/voices/design', {
-    method: 'POST',
-    json: {
-      provider: args.provider || 'qwen',
-      name: args.name,
-      voicePrompt: args.prompt,
-      previewText: args['preview-text'],
-    },
+  const { voice } = await recoverableDesign({
+    provider: args.provider || 'qwen',
+    name: args.name,
+    voicePrompt: args.prompt,
+    previewText: args['preview-text'],
   });
   console.log(`✅ Voice created: ${voice.id} (${voice.name})`);
   if (args.output && voice.previewUrl) await downloadAudio(voice.previewUrl, args.output);
 }
 
+/** Retain the same design key across a lost response or CLI restart, scoped to these credentials. */
+async function recoverableDesign(input) {
+  const token = loadToken();
+  if (!token) fail('Not logged in. Run: node uydi.mjs login');
+  const fingerprint = createHash('sha256').update(JSON.stringify([BASE_URL, token, 'design', input])).digest('hex');
+  const directory = join(CRED_DIR, 'operations');
+  const file = join(directory, `design-${fingerprint}.json`);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const resuming = existsSync(file);
+  let key;
+  if (resuming) {
+    try { key = JSON.parse(readFileSync(file, 'utf8')).key; } catch { fail('Cannot read the pending design operation. Check your local configuration before retrying.'); }
+    if (typeof key !== 'string' || !/^[A-Za-z0-9._:-]{8,200}$/.test(key)) fail('Invalid pending design operation. Check your local configuration before retrying.');
+  } else {
+    key = randomUUID();
+    writeFileSync(file, JSON.stringify({ key }), { mode: 0o600, flag: 'wx' });
+  }
+  console.log(`Idempotency-Key: ${key}`);
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const lookup = `/api/operations/design/${encodeURIComponent(key)}`;
+  let shouldPost = !resuming;
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const posting = shouldPost;
+    shouldPost = false;
+    try {
+      const response = await fetch(`${BASE_URL}${posting ? '/api/voices/design' : lookup}`, {
+        method: posting ? 'POST' : 'GET',
+        headers: posting ? { ...headers, 'Idempotency-Key': key } : headers,
+        ...(posting ? { body: JSON.stringify(input) } : {}),
+        signal: AbortSignal.timeout(posting ? 120_000 : 10_000),
+      });
+      const data = await response.json();
+      if (response.status === 401 || response.status === 403) fail(data.error || 'This account cannot access the pending design.');
+      if (!posting && response.status === 404) { shouldPost = true; continue; }
+      if (posting && response.ok && data.voice) { rmSync(file, { force: true }); return data; }
+      if (!posting && response.ok && data.status === 'completed' && data.response?.voice) {
+        rmSync(file, { force: true }); return data.response;
+      }
+      if (!posting && response.ok && data.status === 'failed') {
+        rmSync(file, { force: true }); fail(data.response?.error || 'Voice design failed.');
+      }
+      if (posting && response.status >= 400 && response.status < 500) {
+        rmSync(file, { force: true }); fail(data.error || `Voice design failed (HTTP ${response.status})`);
+      }
+      // Unknown server errors and interrupted responses must be reconciled before another POST.
+    } catch { /* Keep the request key and query the server after a transport failure. */ }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  fail('Voice design is still unresolved. Run the same command again to resume this request without starting a new design.');
+}
+
 async function cmdClone(args) {
   if (!args.name || !args.file) {
-    fail('Usage: clone --name <name> --file <wav/mp3/m4a file> [--provider qwen|cosyvoice]');
+    fail('Usage: clone --name <name> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider qwen|cosyvoice] [--language code]');
   }
+  if (!['self', 'authorized-adult'].includes(args['rights-basis']))
+    fail('--rights-basis must be self or authorized-adult');
+  if (args['confirm-rights'] !== true)
+    fail('--confirm-rights is required and confirms adult status, explicit authorization, and Uydi acceptable-use rules');
   if (!existsSync(args.file)) fail(`File not found: ${args.file}`);
   console.log('Uploading sample and cloning voice (takes ~10-60s, consumes credits)…');
   const form = new FormData();
   form.set('provider', args.provider || 'qwen');
   form.set('name', args.name);
+  if (args.language && !LANGUAGE_CODES.has(args.language)) fail('Unsupported language code');
+  if (args.language) form.set('language', args.language);
+  form.set('rightsBasis', args['rights-basis'] === 'self' ? 'self' : 'authorized_adult');
+  form.set('voiceOwnerAdult', 'true');
+  form.set('authorizationConfirmed', 'true');
+  form.set('acceptableUseConfirmed', 'true');
   form.set('file', new Blob([readFileSync(args.file)]), basename(args.file));
   const { voice } = await api('/api/voices/clone', {
     method: 'POST',
@@ -328,11 +387,14 @@ async function cmdTts(args) {
   if (!args.voice || !args.text) {
     fail('Usage: tts --voice <voiceId> --text "text to speak" -o out.wav');
   }
+  const voiceType = args['voice-type'];
+  if (voiceType && !['user', 'system'].includes(voiceType)) fail('--voice-type must be user or system');
+  if (voiceType === 'system' && !args.language) fail('System voices require --language (for example, en)');
   const out = args.output || 'out.wav';
   console.log('Synthesizing speech (1 credit / 10 chars)…');
   const { synthesis } = await api('/api/synthesize', {
     method: 'POST',
-    json: { voiceId: args.voice, text: args.text },
+    json: { voiceId: args.voice, text: args.text, ...(voiceType ? { voiceType } : {}), ...(args.language ? { language: args.language } : {}) },
     idempotencyKey: randomUUID(),
   });
   console.log(`✅ Synthesis complete: ${synthesis.id} (${synthesis.chars} chars)`);
@@ -536,9 +598,120 @@ async function cmdCanvasRenders(args) {
   console.log(JSON.stringify(renders.slice(0, limit), null, 2));
 }
 
+// ---------- Freestyle Sound Scenes ----------
+
+function loadSceneDocument(file) {
+  if (!file) fail('Usage: scene-create|scene-save <projectId> --file <scene.json>');
+  if (!existsSync(file)) fail(`File not found: ${file}`);
+  let document;
+  try { document = JSON.parse(readFileSync(file, 'utf8')); } catch { fail(`Invalid JSON file: ${file}`); }
+  if (!document || typeof document !== 'object' || Array.isArray(document)) fail('Scene JSON must be an object');
+  const project = document.project && typeof document.project === 'object' ? document.project : document;
+  const draft = document.suggestion?.draft || project.draft || document.draft || document;
+  if (!draft || typeof draft !== 'object' || !['zh', 'en'].includes(draft.language)) fail('Scene draft must specify language "zh" or "en"');
+  return { version: project.version ?? document.version, draft };
+}
+
+async function cmdSceneOptimize(args) {
+  if (!['zh', 'en'].includes(args.language) || !args.idea) fail('Usage: scene-optimize --language zh|en --idea <idea> [--draft-file <scene.json>]');
+  const draft = args['draft-file'] ? loadSceneDocument(args['draft-file']).draft : undefined;
+  const result = await api('/api/scenes/optimize', { method: 'POST', json: { language: args.language, idea: args.idea, ...(draft ? { draft } : {}) } });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSceneList() {
+  const { projects } = await api('/api/scenes/projects');
+  if (!projects.length) { console.log('(no Sound Scenes yet — create one with scene-create)'); return; }
+  for (const project of projects) console.log(`${project.id}  v${project.version}  ${project.draft.title}  (${fmtTime(project.updatedAt)})`);
+}
+
+async function cmdSceneCreate(args) {
+  const { draft } = loadSceneDocument(args.file);
+  console.log(JSON.stringify(await api('/api/scenes/projects', { method: 'POST', json: { draft } }), null, 2));
+}
+
+async function cmdSceneShow(args) {
+  const id = positionalId(args, 'scene-show <projectId>');
+  console.log(JSON.stringify(await api(`/api/scenes/projects/${id}`), null, 2));
+}
+
+async function cmdSceneSave(args) {
+  const id = positionalId(args, 'scene-save <projectId> --file <scene.json>');
+  const document = loadSceneDocument(args.file);
+  if (!Number.isSafeInteger(document.version) || document.version < 1) fail('Scene JSON must include the current integer project version');
+  console.log(JSON.stringify(await api(`/api/scenes/projects/${id}`, { method: 'PUT', json: { version: document.version, draft: document.draft } }), null, 2));
+}
+
+async function cmdSceneEstimate(args) {
+  const id = args._[0];
+  if (!id) fail('Usage: scene-estimate <projectId> [--version n]');
+  const { project } = await api(`/api/scenes/projects/${encodeURIComponent(id)}`);
+  const version = args.version === undefined ? project.version : Number(args.version);
+  if (!Number.isSafeInteger(version) || version < 1) fail('version must be a positive integer');
+  const { estimate } = await api(`/api/scenes/projects/${encodeURIComponent(id)}/estimate`, { method: 'POST', json: { version } });
+  console.log(JSON.stringify({ projectId: id, title: project.draft.title, ...estimate }, null, 2));
+}
+
+async function waitForSceneRender(renderId, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000; let last = '';
+  while (Date.now() < deadline) {
+    const detail = await api(`/api/scenes/renders/${encodeURIComponent(renderId)}`); const render = detail.render;
+    if (render.status !== last) { console.log(`Scene ${render.status}`); last = render.status; }
+    if (render.status === 'completed') return detail;
+    if (render.status === 'failed') fail(render.error || `Sound Scene render ${renderId} failed`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  fail(`Render is still running after ${timeoutSeconds} seconds. Check it with: scene-status ${renderId}`);
+}
+
+async function cmdSceneGenerate(args) {
+  const projectId = args._[0];
+  if (!projectId || args['quoted-credits'] === undefined) fail('Usage: scene-generate <projectId> --quoted-credits <exact-estimate> [--key idempotency-key] [--no-wait] [--timeout seconds] [-o scene.wav]');
+  const { project } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}`);
+  const version = args.version === undefined ? project.version : Number(args.version);
+  if (!Number.isSafeInteger(version) || version < 1) fail('version must be a positive integer');
+  const { estimate } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}/estimate`, { method: 'POST', json: { version } });
+  const quotedCredits = Number(args['quoted-credits']);
+  if (!Number.isSafeInteger(quotedCredits) || quotedCredits !== estimate.totalCost) fail(`Quote changed or not confirmed: current estimate is ${estimate.totalCost} credits. Review it, then pass --quoted-credits ${estimate.totalCost}`);
+  console.log(`Confirmed quote: ${estimate.totalCost} credits · balance ${estimate.balance}`);
+  if (!estimate.canGenerate) fail('Insufficient credits for this scene.');
+  const idempotencyKey = typeof args.key === 'string' ? args.key : randomUUID();
+  console.log(`Idempotency-Key: ${idempotencyKey}`);
+  const { render } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}/generate`, { method: 'POST', json: { version, idempotencyKey, quotedCredits } });
+  console.log(`Scene render ${render.status}: ${render.id}`);
+  if (args['no-wait']) { console.log(JSON.stringify({ render }, null, 2)); return; }
+  const completed = await waitForSceneRender(render.id, positiveNumber(args.timeout, 1800, 'timeout'));
+  const out = args.output || `${String(project.draft.title || 'sound-scene').replace(/[^a-z0-9 _-]/gi, '').trim() || 'sound-scene'}.wav`;
+  await downloadAudio(completed.render.audioUrl, out);
+  console.log(`✅ Sound Scene complete: ${completed.render.id} (${completed.render.durationMs ?? 0} ms, ${completed.render.totalCost} credits)`);
+}
+
+async function cmdSceneStatus(args) {
+  const id = args._[0];
+  if (!id) fail('Usage: scene-status <renderId> [--wait] [--timeout seconds] [-o scene.wav]');
+  const detail = args.wait ? await waitForSceneRender(id, positiveNumber(args.timeout, 1800, 'timeout')) : await api(`/api/scenes/renders/${encodeURIComponent(id)}`);
+  console.log(JSON.stringify(detail, null, 2));
+  if (args.output) {
+    if (detail.render.status !== 'completed' || !detail.render.audioUrl) fail('The scene render is not complete yet');
+    await downloadAudio(detail.render.audioUrl, args.output);
+  }
+}
+
+async function cmdSceneRenders(args) {
+  const limit = Math.floor(positiveNumber(args.limit, 20, 'limit'));
+  const { renders } = await api('/api/scenes/renders');
+  console.log(JSON.stringify(renders.slice(0, limit), null, 2));
+}
+
+async function cmdSceneDelete(args) {
+  const id = positionalId(args, 'scene-delete <projectId>');
+  await api(`/api/scenes/projects/${id}`, { method: 'DELETE' });
+  console.log(`Deleted Sound Scenes project ${args._[0]}`);
+}
+
 // ---------- 入口 ----------
 
-const HELP = `Uydi Voice CLI — AI voice design / cloning / synthesis / Voice Canvas (${BASE_URL})
+const HELP = `Uydi Voice CLI — voice design / cloning / TTS / Sound Scenes / Voice Canvas (${BASE_URL})
 
 Usage: node uydi.mjs <command> [options]
 
@@ -549,8 +722,8 @@ Usage: node uydi.mjs <command> [options]
   voices                  List my voices
   delete-voice <id>       Delete a voice
   design --name <n> --prompt <desc> --preview-text <t> [--provider qwen|cosyvoice] [-o preview.wav]
-  clone --name <n> --file <audio file> [--provider qwen|cosyvoice]
-  tts --voice <voiceId> --text "text" -o out.wav
+  clone --name <n> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider qwen|cosyvoice] [--language code]
+  tts --voice <voiceId> --text "text" -o out.wav [--voice-type system --language en]
   history [--limit n]     Synthesis history
   system-voices --language <code> [--search text] [--gender value] [--age value] [--scenario value] [--limit n]
   canvas-list             List Voice Canvas projects
@@ -562,6 +735,16 @@ Usage: node uydi.mjs <command> [options]
   canvas-status <renderId> [--wait] [--timeout seconds] [-o output.wav]
   canvas-renders [--limit n]
   canvas-delete <projectId>
+  scene-optimize --language zh|en --idea <text> [--draft-file file.json]
+  scene-list
+  scene-create --file <scene.json>
+  scene-show <projectId>
+  scene-save <projectId> --file <scene.json>
+  scene-estimate <projectId> [--version n]
+  scene-generate <projectId> --quoted-credits <exact-estimate> [--key value] [--no-wait] [-o scene.wav]
+  scene-status <renderId> [--wait] [--timeout seconds] [-o scene.wav]
+  scene-renders [--limit n]
+  scene-delete <projectId>
 
 Env: UYDI_BASE_URL overrides the service URL (default https://uydi.com)`;
 
@@ -586,6 +769,16 @@ const COMMANDS = {
   'canvas-status': cmdCanvasStatus,
   'canvas-renders': cmdCanvasRenders,
   'canvas-delete': cmdCanvasDelete,
+  'scene-optimize': cmdSceneOptimize,
+  'scene-list': cmdSceneList,
+  'scene-create': cmdSceneCreate,
+  'scene-show': cmdSceneShow,
+  'scene-save': cmdSceneSave,
+  'scene-estimate': cmdSceneEstimate,
+  'scene-generate': cmdSceneGenerate,
+  'scene-status': cmdSceneStatus,
+  'scene-renders': cmdSceneRenders,
+  'scene-delete': cmdSceneDelete,
 };
 
 const [cmd, ...rest] = process.argv.slice(2);

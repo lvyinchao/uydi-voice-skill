@@ -2,15 +2,16 @@
 name: uydi-voice
 description: >
   Uydi Voice enables an AI agent to design custom voices, clone a user's authorized
-  voice sample, synthesize narration, and produce multi-voice Voice Canvas projects
+  voice sample, synthesize narration, create expressive sound scenes, and produce multi-voice Voice Canvas projects
   with the Uydi voice platform
   (https://uydi.com). Use it when a user asks to create or describe a voice, clone
   their own voice from a recording, convert text to speech, generate narration audio,
-  arrange multiple speakers or languages into one audio file, list or manage Uydi
-  voices, check Uydi credits, or review synthesis history. It requires Node.js 18+
+  create dialogue, sound effects, ambience or music; arrange multiple speakers or
+  languages into one audio file; list or manage Uydi voices; check credits; or review
+  synthesis and scene history. It requires Node.js 18+
   and a one-time OAuth approval in the user's browser.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   openclaw:
     requires:
       bins:
@@ -25,9 +26,9 @@ metadata:
 
 # Uydi Voice
 
-Use the Uydi voice platform from any agent: voice design (text description → new voice),
-voice cloning (audio sample → digital voice), text-to-speech synthesis, and multi-voice
-Voice Canvas production, all through a single zero-dependency CLI script.
+Use the Uydi voice platform from any agent: voice design, authorized voice cloning,
+text-to-speech, freestyle sound-scene creation, and multi-voice Voice Canvas production,
+all through a single zero-dependency CLI script.
 
 ## Requirements
 
@@ -43,6 +44,9 @@ Voice Canvas production, all through a single zero-dependency CLI script.
 - **Synthesize** speech from text with a selected Uydi voice and save a WAV file.
 - **Produce a Voice Canvas** from an ordered sequence of language-aware voices, scripts,
   and pauses, then download one continuous 24 kHz WAV.
+- **Create Sound Scenes** in Chinese or English: dialogue, nonverbal sound effects and
+  ambience, or instrumental music. Optimize an idea into a detailed editable draft,
+  estimate the fixed credit quote, then generate and download a WAV.
 - **Manage** the authenticated account's voice list, synthesis history, and credit balance.
 
 ## First-time login (one-time, needs the user)
@@ -77,7 +81,9 @@ node scripts/uydi.mjs design --name "Warm Narrator" \
   --preview-text "Hello, this is a preview." -o preview.wav
 
 # Clone a voice from a 10-20s clean speech sample (wav/mp3/m4a, costs credits):
-node scripts/uydi.mjs clone --name "My Voice" --file sample.wav
+node scripts/uydi.mjs clone --name "My Voice" --file sample.wav --rights-basis self --confirm-rights
+# Malay / Filipino / Arabic: choose ms / fil / ar when creating the clone
+node scripts/uydi.mjs clone --name "Malay Voice" --file sample.wav --provider qwen --language ms --rights-basis self --confirm-rights
 
 # Synthesize speech with any voice (1 credit / 10 chars, max 2000 chars per run):
 node scripts/uydi.mjs tts --voice <voiceId> --text "Text to speak, any language." -o out.wav
@@ -99,7 +105,24 @@ node scripts/uydi.mjs canvas-render <projectId> -o episode-1.wav
 node scripts/uydi.mjs canvas-status <renderId> --wait -o episode-1.wav
 node scripts/uydi.mjs canvas-renders --limit 10
 node scripts/uydi.mjs canvas-delete <projectId>
+
+# Freestyle Sound Scenes — dialogue, soundscape, or instrumental music
+node scripts/uydi.mjs scene-optimize --language zh --idea "雨夜便利店里，店员和赶路的学生简短交谈"
+node scripts/uydi.mjs scene-create --file scene.json
+node scripts/uydi.mjs scene-list
+node scripts/uydi.mjs scene-show <projectId>
+node scripts/uydi.mjs scene-save <projectId> --file scene.json
+node scripts/uydi.mjs scene-estimate <projectId>
+node scripts/uydi.mjs scene-generate <projectId> --quoted-credits <exact-estimate> -o scene.wav
+node scripts/uydi.mjs scene-status <renderId> --wait -o scene.wav
+node scripts/uydi.mjs scene-renders --limit 10
+node scripts/uydi.mjs scene-delete <projectId>
 ```
+
+Read [references/sound-scenes.md](references/sound-scenes.md) for the JSON schema,
+sample dialogue/soundscape/music prompts, prompt optimization, quote approval, and
+recovery workflow. Sound Scenes use Qwen Audio 3.1 TTS Next; the optional prompt
+optimizer uses Qwen 3.8 Flash when available.
 
 For the editable JSON schema, language codes, voice selection, optimistic versioning,
 credit checks, background rendering, and safe retry behavior, read
@@ -117,6 +140,9 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 3. **Reuse an existing voice**: `voices` to find the id → `tts`.
 4. **Multi-speaker production**: choose compatible voices → create a canvas → save the
    ordered nodes → estimate credits → render and deliver the merged WAV.
+5. **Freestyle sound design**: describe a scene in the user's language → use `scene-optimize`
+   to expand sound layers, spatial cues and timing → review the draft and `scene-estimate`
+   quote → after the user approves the exact quote, run `scene-generate` and deliver WAV.
 
 ## Security & trust
 
@@ -128,6 +154,10 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
   the account password. The user can revoke it anytime with `logout` or from the website.
 - Approval always happens on uydi.com in the user's browser; the script never asks for
   or handles the account password.
+- Never add `--confirm-rights` on the user's behalf. Before cloning, the user must explicitly
+  confirm that the voice owner is an adult, that the recording is their own voice or carries
+  verifiable permission, and that the clone will follow Uydi's acceptable-use rules. Use
+  `--rights-basis self` for the user's own voice or `authorized-adult` for a third party.
 
 ## Notes
 
@@ -136,6 +166,12 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 - Voice Canvas preview, saving, estimation, reused nodes, merging, playback, and download
   are free. `canvas-render` charges only nodes that need newly generated audio. Show the
   exact estimate first; an explicit request to render is sufficient authorization.
+- Sound Scene generation consumes the live fixed-credit quote per render. Show the estimate
+  and balance before generating. `scene-generate` requires `--quoted-credits` to match the
+  server's current quote; never guess the price or retry an uncertain request with a new key.
+- `scene-optimize` may enrich a scene description, but generated fields must remain in the
+  selected Chinese or English language. Review and edit the suggestion before saving or
+  spending credits. Dialogue is spoken verbatim; soundscape and music scenes are nonverbal.
 - Voice slots are limited per plan (free: 1 voice, Pro: 5). If design/clone fails with a
   quota error, list voices with `voices` and ask the user which one to `delete-voice`.
 - Voice cloning requires the user to own the voice or have explicit permission.
@@ -160,6 +196,8 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 
 ## Version history
 
+- **1.2.0** — Adds freestyle Sound Scenes: language-matched prompt optimization, dialogue,
+  soundscape and instrumental music projects, quote-checked generation, and WAV recovery.
 - **1.1.0** — Adds language-aware Voice Canvas project editing, credit estimation,
   background rendering, status polling, completed-render history, and WAV download.
 - **1.0.1** — Adds the required idempotency header for clone and synthesis requests.
