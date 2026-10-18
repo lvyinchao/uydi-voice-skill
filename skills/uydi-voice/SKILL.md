@@ -11,7 +11,7 @@ description: >
   synthesis and scene history. It requires Node.js 18+
   and a one-time OAuth approval in the user's browser.
 metadata:
-  version: "1.3.0"
+  version: "1.3.1"
   openclaw:
     requires:
       bins:
@@ -81,7 +81,7 @@ node scripts/uydi.mjs delete-voice <id>     # delete a voice permanently
 # --name, --prompt and --preview-text are all required):
 node scripts/uydi.mjs design --name "Warm Narrator" \
   --prompt "A warm, deep male narrator voice, slow pace, documentary style" \
-  --preview-text "Hello, this is a preview." -o preview.wav
+  --preview-text "Hello, this is a voice preview." -o preview.wav
 
 # Clone a voice from a 10-20s clean speech sample (wav/mp3/m4a, costs credits):
 node scripts/uydi.mjs clone --name "My Voice" --file sample.wav --rights-basis self --confirm-rights
@@ -138,8 +138,10 @@ For the editable JSON schema, language codes, voice selection, optimistic versio
 credit checks, background rendering, and safe retry behavior, read
 [references/voice-canvas.md](references/voice-canvas.md) before using Canvas commands.
 
-Optional flags: `--provider qwen|cosyvoice` on design/clone (default `qwen`, the
-general-purpose multilingual engine; `cosyvoice` focuses on dialects).
+Optional flags: `--provider qwen|cosyvoice` on design/clone (default `qwen`).
+Design descriptions are at most 500 characters; preview text is 15–200 characters
+in Chinese or English. Pass `--language zh|en` to choose a design preview language.
+Read each saved voice's actual supported languages before synthesis.
 
 ## Typical workflows
 
@@ -182,8 +184,9 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 - `scene-optimize` may enrich a scene description, but generated fields must remain in the
   selected Chinese or English language. Review and edit the suggestion before saving or
   spending credits. Dialogue is spoken verbatim; soundscape and music scenes are nonverbal.
-- Voice slots are limited per plan (free: 1 voice, Pro: 5). If design/clone fails with a
-  quota error, list voices with `voices` and ask the user which one to `delete-voice`.
+- Read current voice slots from `credits` (`voiceQuota` in the API); do not assume a
+  fixed allowance. If design/clone fails with a quota error, list voices and ask the user
+  which one to delete before freeing a slot.
 - Voice cloning requires the user to own the voice or have explicit permission.
 - Output audio is WAV. Text over 2000 characters must be split into multiple `tts` runs.
 - Canvas has no application-level node cap; each node accepts up to 600 characters and a
@@ -205,6 +208,8 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
    printed Canvas idempotency key when retrying an uncertain render request.
 
 ## Version history
+
+- **1.3.1** — Restores the deployed Sound Scenes workflow and current voice design API; aligns all installation packages and references.
 
 - **1.3.0** — Complete paginated voice catalog with descriptions, structured filters, Chinese/English keyword ranking with evidence, and JSON export.
 - **1.2.0** — Adds freestyle Sound Scenes: language-matched prompt optimization, dialogue,

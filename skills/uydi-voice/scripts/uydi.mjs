@@ -435,6 +435,7 @@ async function cmdDesign(args) {
     name: args.name,
     voicePrompt: args.prompt,
     previewText: args['preview-text'],
+    ...(args.language ? { language: args.language } : {}),
   });
   console.log(`✅ Voice created: ${voice.id} (${voice.name})`);
   if (args.output && voice.previewUrl) await downloadAudio(voice.previewUrl, args.output);
