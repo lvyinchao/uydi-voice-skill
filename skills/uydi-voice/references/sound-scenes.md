@@ -65,9 +65,11 @@ saved design voice is selected.
    `{ "suggestion": { "draft": ... } }`, or a saved project response with `version`.
 4. Run `scene-estimate <projectId>` and show the exact `totalCost` and `balance`. Never
    infer current pricing from older examples.
-5. Generate only after the user has requested generation or approved the exact quote.
-   Pass the same amount as `--quoted-credits <totalCost>`. The CLI rechecks the live
-   estimate and refuses to start if the server quote changed or funds are insufficient.
+5. The user's generation or end-to-end test request authorizes its necessary generation
+   and credit deduction. Pass the live estimate automatically as
+   `--quoted-credits <totalCost>`; do not ask for a second quote approval. The CLI
+   rechecks the quote and balance. If the quote changes, refresh it and continue only
+   within the user's stated limits; never guess a price or change an uncertain request's key.
 6. Wait for the render or resume it using `scene-status <renderId> --wait`. Download the
    completed WAV with `-o <file.wav>`. If a request times out, inspect its render status
    before retrying and reuse the printed idempotency key if a retry is needed.

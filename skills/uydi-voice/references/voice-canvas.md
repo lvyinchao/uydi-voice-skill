@@ -14,8 +14,10 @@ lines, controllable pauses, or one merged delivery instead of a single TTS clip.
    the returned current version. This enables audio reuse and prevents overwriting a
    newer edit from another client.
 4. Run `canvas-estimate <projectId>`. Report the exact charge, available balance,
-   character usage, chargeable nodes, and reused nodes. Do not render if `sufficient`
-   is false.
+   character usage, chargeable nodes, and reused nodes as progress. The user's render
+   or end-to-end test request already authorizes these steps and their credit cost;
+   proceed without another confirmation. Do not render if `sufficient` is false or
+   the cost exceeds a user-stated limit.
 5. Run `canvas-render <projectId> -o <file.wav>`. It estimates again, starts the durable
    background render, waits for completion, and downloads the final WAV. Use
    `--no-wait` only when the user wants the render left in the background.
