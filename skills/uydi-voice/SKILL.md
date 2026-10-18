@@ -7,11 +7,11 @@ description: >
   (https://uydi.com). Use it when a user asks to create or describe a voice, clone
   their own voice from a recording, convert text to speech, generate narration audio,
   create dialogue, sound effects, ambience or music; arrange multiple speakers or
-  languages into one audio file; list or manage Uydi voices; check credits; or review
+  languages into one audio file; list or manage Uydi voices and their descriptions; find voices by language, gender, age, style or use case; check credits; or review
   synthesis and scene history. It requires Node.js 18+
   and a one-time OAuth approval in the user's browser.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   openclaw:
     requires:
       bins:
@@ -42,6 +42,7 @@ all through a single zero-dependency CLI script.
 - **Clone** a voice from a 10–20 second WAV, MP3, or M4A sample when the user owns the
   voice or has explicit permission.
 - **Synthesize** speech from text with a selected Uydi voice and save a WAV file.
+- **Discover voices** across the complete system catalog and this account's personal library, with full descriptions, filters and keyword match evidence.
 - **Produce a Voice Canvas** from an ordered sequence of language-aware voices, scripts,
   and pauses, then download one continuous 24 kHz WAV.
 - **Create Sound Scenes** in Chinese or English: dialogue, nonverbal sound effects and
@@ -71,7 +72,9 @@ node scripts/uydi.mjs login
 ```bash
 node scripts/uydi.mjs whoami                # current account
 node scripts/uydi.mjs credits               # credit balance and pricing
-node scripts/uydi.mjs voices                # list voices (id, kind, name, status)
+node scripts/uydi.mjs voices --all -o voices.json # every system + personal voice with descriptions
+node scripts/uydi.mjs voices --source user --json
+node scripts/uydi.mjs find-voices --language zh --gender female --query "沉稳 旁白" --limit 5
 node scripts/uydi.mjs delete-voice <id>     # delete a voice permanently
 
 # Design a brand-new voice from a text description (costs credits;
@@ -91,6 +94,13 @@ node scripts/uydi.mjs tts --voice <voiceId> --text "Text to speak, any language.
 node scripts/uydi.mjs history --limit 10    # recent syntheses
 node scripts/uydi.mjs logout                # revoke token + delete local credentials
 ```
+
+### Voice discovery
+
+For requests to list all voices, describe a voice, or choose voices for a brief, read
+[references/voice-discovery.md](references/voice-discovery.md). `voices --all` follows
+every catalog page; `find-voices` ranks the complete matching catalog and returns
+description evidence. Do not recommend only from the first page or from memory.
 
 ### Voice Canvas
 
@@ -137,7 +147,7 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
    `tts` the script text → deliver the WAV file.
 2. **Speak in the user's own voice**: ask for a 10–20 s clean recording → `clone` →
    `tts` with the new voice id.
-3. **Reuse an existing voice**: `voices` to find the id → `tts`.
+3. **Reuse an existing voice**: `find-voices` with the user's criteria → inspect descriptions and language support → `tts` with the returned ID and type.
 4. **Multi-speaker production**: choose compatible voices → create a canvas → save the
    ordered nodes → estimate credits → render and deliver the merged WAV.
 5. **Freestyle sound design**: describe a scene in the user's language → use `scene-optimize`
@@ -196,6 +206,7 @@ general-purpose multilingual engine; `cosyvoice` focuses on dialects).
 
 ## Version history
 
+- **1.3.0** — Complete paginated voice catalog with descriptions, structured filters, Chinese/English keyword ranking with evidence, and JSON export.
 - **1.2.0** — Adds freestyle Sound Scenes: language-matched prompt optimization, dialogue,
   soundscape and instrumental music projects, quote-checked generation, and WAV recovery.
 - **1.1.0** — Adds language-aware Voice Canvas project editing, credit estimation,

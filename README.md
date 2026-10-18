@@ -39,6 +39,8 @@ From the skill directory, authenticate once and then use the CLI:
 ```bash
 node scripts/uydi.mjs login
 node scripts/uydi.mjs whoami
+node scripts/uydi.mjs voices --all -o voices.json
+node scripts/uydi.mjs find-voices --language zh --gender female --query "沉稳 旁白" --limit 5
 node scripts/uydi.mjs design --name "Warm Narrator" \
   --prompt "A warm, deep narrator voice with a calm documentary pace" \
   --preview-text "Hello, this is a preview." -o preview.wav
