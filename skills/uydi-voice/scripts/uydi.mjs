@@ -252,7 +252,7 @@ async function cmdWhoami() {
 }
 
 async function cmdCredits() {
-  const c = await api('/api/credits');
+  const c = await api('/api/v1/credits');
   console.log(`Plan: ${c.plan}    Balance: ${c.balance} credits`);
   console.log(
     `Pricing: design=${c.pricing.design}, clone=${c.pricing.clone}, tts=1 credit / ${c.pricing.ttsUnitChars} chars`
@@ -282,7 +282,7 @@ function catalogFilters(args, defaultSource) {
   if (args.limit !== undefined && (typeof args.limit === 'boolean' || !Number.isInteger(Number(args.limit)) || Number(args.limit) < 1)) fail('--limit must be a positive integer');
   return { source, language: args.language || 'all', gender: args.gender || null, age: args.age || null,
     minAge: args['min-age'] === undefined ? null : Number(args['min-age']), maxAge: args['max-age'] === undefined ? null : Number(args['max-age']),
-    scenario: args.scenario || null, provider: args.provider || null, kind: args.kind || null, status: args.status || null };
+    scenario: args.scenario || null, provider: args.provider === 'qwen' ? 'uydi' : args.provider || null, kind: args.kind || null, status: args.status || null };
 }
 
 async function systemCatalog(language = 'all', extra = {}) {
@@ -290,7 +290,7 @@ async function systemCatalog(language = 'all', extra = {}) {
   let cursor = 0, version, total;
   for (;;) {
     const params = new URLSearchParams({ language, limit: '100', cursor: String(cursor), ...extra });
-    const page = await api(`/api/system-voices?${params}`);
+    const page = await api(`/api/v1/system-voices?${params}`);
     if (!Array.isArray(page.voices) || !Number.isInteger(page.total) || page.total < 0) fail('Invalid voice catalog response; no complete catalog was returned');
     if (version !== undefined && (page.version !== version || page.total !== total)) fail('Voice catalog changed while paging; retry the read-only command');
     version = page.version; total = page.total;
@@ -306,7 +306,7 @@ async function systemCatalog(language = 'all', extra = {}) {
 function normalizeCatalogVoice(v, type) {
   const description = (type === 'system' ? v.description || v.traits : v.voicePrompt)?.trim() || null;
   return {
-    id: v.id, voiceType: type, name: v.name, kind: v.kind, provider: type === 'system' ? 'qwen' : v.provider,
+    id: v.id, voiceType: type, name: v.name, kind: v.kind, provider: type === 'system' ? 'uydi' : v.provider,
     description, descriptionAvailable: description !== null,
     traits: v.traits || null, scenario: v.scenario || null,
     languages: type === 'system' ? v.languages || [] : v.supportedLanguages || [],
@@ -373,7 +373,7 @@ async function discoverVoices(args, searching = false) {
     voices.push(...catalog.voices.map((v) => normalizeCatalogVoice(v, 'system')));
   }
   if (filters.source !== 'system') {
-    const result = await api('/api/voices');
+    const result = await api('/api/v1/voices');
     voices.push(...result.voices.map((v) => normalizeCatalogVoice(v, 'user')));
   }
   const matches = voices.filter((v) => catalogMatches(v, filters)).map((v) => {
@@ -414,11 +414,11 @@ async function cmdFindVoices(args) { return discoverVoices(args, true); }
 async function cmdDeleteVoice(args) {
   const id = args._[0];
   if (!id) fail('Usage: delete-voice <voiceId>');
-  await api(`/api/voices/${id}`, { method: 'DELETE' });
+  await api(`/api/v1/voices/${id}`, { method: 'DELETE' });
   console.log(`Deleted voice ${id}`);
 }
 
-/** 用 Bearer 下载站内音频（如 /api/audio/xxx）到本地文件 */
+/** 用 Bearer 下载站内音频（如 /api/v1/audio/xxx）到本地文件 */
 async function downloadAudio(urlPath, outPath) {
   const res = await api(urlPath, { raw: true });
   writeFileSync(outPath, Buffer.from(await res.arrayBuffer()));
@@ -427,11 +427,11 @@ async function downloadAudio(urlPath, outPath) {
 
 async function cmdDesign(args) {
   if (!args.name || !args.prompt || !args['preview-text']) {
-    fail('Usage: design --name <name> --prompt <voice description> --preview-text <text> [--provider qwen|cosyvoice] [-o preview.wav]');
+    fail('Usage: design --name <name> --prompt <voice description> --preview-text <text> [--provider uydi] [-o preview.wav]');
   }
   console.log('Designing voice (takes ~10-30s, consumes credits)…');
   const { voice } = await recoverableDesign({
-    provider: args.provider || 'qwen',
+    provider: args.provider || 'uydi',
     name: args.name,
     voicePrompt: args.prompt,
     previewText: args['preview-text'],
@@ -460,14 +460,14 @@ async function recoverableDesign(input) {
   }
   console.log(`Idempotency-Key: ${key}`);
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const lookup = `/api/operations/design/${encodeURIComponent(key)}`;
+  const lookup = `/api/v1/operations/design/${encodeURIComponent(key)}`;
   let shouldPost = !resuming;
   const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     const posting = shouldPost;
     shouldPost = false;
     try {
-      const response = await fetch(`${BASE_URL}${posting ? '/api/voices/design' : lookup}`, {
+      const response = await fetch(`${BASE_URL}${posting ? '/api/v1/voices/design' : lookup}`, {
         method: posting ? 'POST' : 'GET',
         headers: posting ? { ...headers, 'Idempotency-Key': key } : headers,
         ...(posting ? { body: JSON.stringify(input) } : {}),
@@ -495,7 +495,7 @@ async function recoverableDesign(input) {
 
 async function cmdClone(args) {
   if (!args.name || !args.file) {
-    fail('Usage: clone --name <name> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider qwen|cosyvoice] [--language code]');
+    fail('Usage: clone --name <name> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider uydi] [--language code]');
   }
   if (!['self', 'authorized-adult'].includes(args['rights-basis']))
     fail('--rights-basis must be self or authorized-adult');
@@ -504,7 +504,7 @@ async function cmdClone(args) {
   if (!existsSync(args.file)) fail(`File not found: ${args.file}`);
   console.log('Uploading sample and cloning voice (takes ~10-60s, consumes credits)…');
   const form = new FormData();
-  form.set('provider', args.provider || 'qwen');
+  form.set('provider', args.provider || 'uydi');
   form.set('name', args.name);
   if (args.language && !LANGUAGE_CODES.has(args.language)) fail('Unsupported language code');
   if (args.language) form.set('language', args.language);
@@ -513,7 +513,7 @@ async function cmdClone(args) {
   form.set('authorizationConfirmed', 'true');
   form.set('acceptableUseConfirmed', 'true');
   form.set('file', new Blob([readFileSync(args.file)]), basename(args.file));
-  const { voice } = await api('/api/voices/clone', {
+  const { voice } = await api('/api/v1/voices/clone', {
     method: 'POST',
     form,
     idempotencyKey: randomUUID(),
@@ -525,12 +525,12 @@ async function cmdTts(args) {
   if (!args.voice || !args.text) {
     fail('Usage: tts --voice <voiceId> --text "text to speak" -o out.wav');
   }
-  const voiceType = args['voice-type'] || (String(args.voice).startsWith('qwen3:') ? 'system' : undefined);
+  const voiceType = args['voice-type'] || (/^(?:q31-(?:flash|plus)-|qwen3:)/.test(String(args.voice)) ? 'system' : undefined);
   if (voiceType && !['user', 'system'].includes(voiceType)) fail('--voice-type must be user or system');
   if (voiceType === 'system' && !args.language) fail('System voices require --language (for example, en)');
   const out = args.output || 'out.wav';
   console.log('Synthesizing speech (1 credit / 10 chars)…');
-  const { synthesis } = await api('/api/synthesize', {
+  const { synthesis } = await api('/api/v1/synthesize', {
     method: 'POST',
     json: { voiceId: args.voice, text: args.text, ...(voiceType ? { voiceType } : {}), ...(args.language ? { language: args.language } : {}) },
     idempotencyKey: randomUUID(),
@@ -541,7 +541,7 @@ async function cmdTts(args) {
 
 async function cmdHistory(args) {
   const limit = Number(args.limit || 20);
-  const { syntheses } = await api('/api/syntheses');
+  const { syntheses } = await api('/api/v1/syntheses');
   if (!syntheses.length) {
     console.log('(no synthesis history yet)');
     return;
@@ -610,12 +610,12 @@ async function cmdSystemVoices(args) {
   if (args.age) params.set('age', args.age);
   if (args.scenario) params.set('scenario', args.scenario);
   if (args.cursor) params.set('cursor', args.cursor);
-  const result = await api(`/api/system-voices?${params}`);
+  const result = await api(`/api/v1/system-voices?${params}`);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function cmdCanvasList() {
-  const { projects } = await api('/api/dubbing/projects');
+  const { projects } = await api('/api/v1/dubbing/projects');
   if (!projects.length) {
     console.log('(no Voice Canvas projects yet — create one with canvas-create)');
     return;
@@ -626,7 +626,7 @@ async function cmdCanvasList() {
 }
 
 async function cmdCanvasCreate(args) {
-  const result = await api('/api/dubbing/projects', {
+  const result = await api('/api/v1/dubbing/projects', {
     method: 'POST',
     json: { title: typeof args.title === 'string' ? args.title : undefined },
   });
@@ -635,13 +635,13 @@ async function cmdCanvasCreate(args) {
 
 async function cmdCanvasShow(args) {
   const id = positionalId(args, 'canvas-show <projectId>');
-  console.log(JSON.stringify(await api(`/api/dubbing/projects/${id}`), null, 2));
+  console.log(JSON.stringify(await api(`/api/v1/dubbing/projects/${id}`), null, 2));
 }
 
 async function cmdCanvasSave(args) {
   const id = positionalId(args, 'canvas-save <projectId> --file <canvas.json>');
   const document = loadCanvasDocument(args.file);
-  const result = await api(`/api/dubbing/projects/${id}/nodes`, {
+  const result = await api(`/api/v1/dubbing/projects/${id}/nodes`, {
     method: 'PUT',
     json: { version: document.version, title: document.title, nodes: document.nodes },
   });
@@ -650,17 +650,17 @@ async function cmdCanvasSave(args) {
 
 async function cmdCanvasDelete(args) {
   const id = positionalId(args, 'canvas-delete <projectId>');
-  await api(`/api/dubbing/projects/${id}`, { method: 'DELETE' });
+  await api(`/api/v1/dubbing/projects/${id}`, { method: 'DELETE' });
   console.log(`Deleted Voice Canvas project ${args._[0]}`);
 }
 
 async function currentCanvasVersion(projectId) {
-  const detail = await api(`/api/dubbing/projects/${encodeURIComponent(projectId)}`);
+  const detail = await api(`/api/v1/dubbing/projects/${encodeURIComponent(projectId)}`);
   return detail;
 }
 
 async function canvasEstimate(projectId, version) {
-  return api(`/api/dubbing/projects/${encodeURIComponent(projectId)}/render-estimate?version=${encodeURIComponent(version)}`);
+  return api(`/api/v1/dubbing/projects/${encodeURIComponent(projectId)}/render-estimate?version=${encodeURIComponent(version)}`);
 }
 
 async function cmdCanvasEstimate(args) {
@@ -676,7 +676,7 @@ async function waitForCanvasRender(renderId, timeoutSeconds) {
   const deadline = Date.now() + timeoutSeconds * 1000;
   let lastProgress = '';
   while (Date.now() < deadline) {
-    const detail = await api(`/api/dubbing/renders/${encodeURIComponent(renderId)}`);
+    const detail = await api(`/api/v1/dubbing/renders/${encodeURIComponent(renderId)}`);
     const render = detail.render;
     const progress = `${render.status}:${render.completedNodes}/${render.totalNodes}`;
     if (progress !== lastProgress) {
@@ -709,7 +709,7 @@ async function cmdCanvasRender(args) {
   console.log(`Idempotency-Key: ${key}`);
   let started;
   try {
-    started = await api(`/api/dubbing/projects/${encodeURIComponent(projectId)}/renders`, {
+    started = await api(`/api/v1/dubbing/projects/${encodeURIComponent(projectId)}/renders`, {
       method: 'POST',
       json: { version },
       idempotencyKey: key,
@@ -733,7 +733,7 @@ async function cmdCanvasStatus(args) {
   if (!renderId) fail('Usage: canvas-status <renderId> [--wait] [--timeout seconds] [-o output.wav]');
   const detail = args.wait
     ? await waitForCanvasRender(renderId, positiveNumber(args.timeout, 1800, 'timeout'))
-    : await api(`/api/dubbing/renders/${encodeURIComponent(renderId)}`);
+    : await api(`/api/v1/dubbing/renders/${encodeURIComponent(renderId)}`);
   console.log(JSON.stringify(detail, null, 2));
   if (args.output) {
     if (detail.render.status !== 'completed' || !detail.render.audioUrl) fail('The render is not complete yet');
@@ -743,7 +743,7 @@ async function cmdCanvasStatus(args) {
 
 async function cmdCanvasRenders(args) {
   const limit = Math.floor(positiveNumber(args.limit, 20, 'limit'));
-  const { renders } = await api('/api/dubbing/renders');
+  const { renders } = await api('/api/v1/dubbing/renders');
   console.log(JSON.stringify(renders.slice(0, limit), null, 2));
 }
 
@@ -764,47 +764,47 @@ function loadSceneDocument(file) {
 async function cmdSceneOptimize(args) {
   if (!['zh', 'en'].includes(args.language) || !args.idea) fail('Usage: scene-optimize --language zh|en --idea <idea> [--draft-file <scene.json>]');
   const draft = args['draft-file'] ? loadSceneDocument(args['draft-file']).draft : undefined;
-  const result = await api('/api/scenes/optimize', { method: 'POST', json: { language: args.language, idea: args.idea, ...(draft ? { draft } : {}) } });
+  const result = await api('/api/v1/scenes/optimize', { method: 'POST', json: { language: args.language, idea: args.idea, ...(draft ? { draft } : {}) } });
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function cmdSceneList() {
-  const { projects } = await api('/api/scenes/projects');
+  const { projects } = await api('/api/v1/scenes/projects');
   if (!projects.length) { console.log('(no Sound Scenes yet — create one with scene-create)'); return; }
   for (const project of projects) console.log(`${project.id}  v${project.version}  ${project.draft.title}  (${fmtTime(project.updatedAt)})`);
 }
 
 async function cmdSceneCreate(args) {
   const { draft } = loadSceneDocument(args.file);
-  console.log(JSON.stringify(await api('/api/scenes/projects', { method: 'POST', json: { draft } }), null, 2));
+  console.log(JSON.stringify(await api('/api/v1/scenes/projects', { method: 'POST', json: { draft } }), null, 2));
 }
 
 async function cmdSceneShow(args) {
   const id = positionalId(args, 'scene-show <projectId>');
-  console.log(JSON.stringify(await api(`/api/scenes/projects/${id}`), null, 2));
+  console.log(JSON.stringify(await api(`/api/v1/scenes/projects/${id}`), null, 2));
 }
 
 async function cmdSceneSave(args) {
   const id = positionalId(args, 'scene-save <projectId> --file <scene.json>');
   const document = loadSceneDocument(args.file);
   if (!Number.isSafeInteger(document.version) || document.version < 1) fail('Scene JSON must include the current integer project version');
-  console.log(JSON.stringify(await api(`/api/scenes/projects/${id}`, { method: 'PUT', json: { version: document.version, draft: document.draft } }), null, 2));
+  console.log(JSON.stringify(await api(`/api/v1/scenes/projects/${id}`, { method: 'PUT', json: { version: document.version, draft: document.draft } }), null, 2));
 }
 
 async function cmdSceneEstimate(args) {
   const id = args._[0];
   if (!id) fail('Usage: scene-estimate <projectId> [--version n]');
-  const { project } = await api(`/api/scenes/projects/${encodeURIComponent(id)}`);
+  const { project } = await api(`/api/v1/scenes/projects/${encodeURIComponent(id)}`);
   const version = args.version === undefined ? project.version : Number(args.version);
   if (!Number.isSafeInteger(version) || version < 1) fail('version must be a positive integer');
-  const { estimate } = await api(`/api/scenes/projects/${encodeURIComponent(id)}/estimate`, { method: 'POST', json: { version } });
+  const { estimate } = await api(`/api/v1/scenes/projects/${encodeURIComponent(id)}/estimate`, { method: 'POST', json: { version } });
   console.log(JSON.stringify({ projectId: id, title: project.draft.title, ...estimate }, null, 2));
 }
 
 async function waitForSceneRender(renderId, timeoutSeconds) {
   const deadline = Date.now() + timeoutSeconds * 1000; let last = '';
   while (Date.now() < deadline) {
-    const detail = await api(`/api/scenes/renders/${encodeURIComponent(renderId)}`); const render = detail.render;
+    const detail = await api(`/api/v1/scenes/renders/${encodeURIComponent(renderId)}`); const render = detail.render;
     if (render.status !== last) { console.log(`Scene ${render.status}`); last = render.status; }
     if (render.status === 'completed') return detail;
     if (render.status === 'failed') fail(render.error || `Sound Scene render ${renderId} failed`);
@@ -816,17 +816,17 @@ async function waitForSceneRender(renderId, timeoutSeconds) {
 async function cmdSceneGenerate(args) {
   const projectId = args._[0];
   if (!projectId || args['quoted-credits'] === undefined) fail('Usage: scene-generate <projectId> --quoted-credits <exact-estimate> [--key idempotency-key] [--no-wait] [--timeout seconds] [-o scene.wav]');
-  const { project } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}`);
+  const { project } = await api(`/api/v1/scenes/projects/${encodeURIComponent(projectId)}`);
   const version = args.version === undefined ? project.version : Number(args.version);
   if (!Number.isSafeInteger(version) || version < 1) fail('version must be a positive integer');
-  const { estimate } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}/estimate`, { method: 'POST', json: { version } });
+  const { estimate } = await api(`/api/v1/scenes/projects/${encodeURIComponent(projectId)}/estimate`, { method: 'POST', json: { version } });
   const quotedCredits = Number(args['quoted-credits']);
   if (!Number.isSafeInteger(quotedCredits) || quotedCredits !== estimate.totalCost) fail(`Quote changed or not confirmed: current estimate is ${estimate.totalCost} credits. Review it, then pass --quoted-credits ${estimate.totalCost}`);
   console.log(`Confirmed quote: ${estimate.totalCost} credits · balance ${estimate.balance}`);
   if (!estimate.canGenerate) fail('Insufficient credits for this scene.');
   const idempotencyKey = typeof args.key === 'string' ? args.key : randomUUID();
   console.log(`Idempotency-Key: ${idempotencyKey}`);
-  const { render } = await api(`/api/scenes/projects/${encodeURIComponent(projectId)}/generate`, { method: 'POST', json: { version, idempotencyKey, quotedCredits } });
+  const { render } = await api(`/api/v1/scenes/projects/${encodeURIComponent(projectId)}/generate`, { method: 'POST', json: { version, idempotencyKey, quotedCredits } });
   console.log(`Scene render ${render.status}: ${render.id}`);
   if (args['no-wait']) { console.log(JSON.stringify({ render }, null, 2)); return; }
   const completed = await waitForSceneRender(render.id, positiveNumber(args.timeout, 1800, 'timeout'));
@@ -838,7 +838,7 @@ async function cmdSceneGenerate(args) {
 async function cmdSceneStatus(args) {
   const id = args._[0];
   if (!id) fail('Usage: scene-status <renderId> [--wait] [--timeout seconds] [-o scene.wav]');
-  const detail = args.wait ? await waitForSceneRender(id, positiveNumber(args.timeout, 1800, 'timeout')) : await api(`/api/scenes/renders/${encodeURIComponent(id)}`);
+  const detail = args.wait ? await waitForSceneRender(id, positiveNumber(args.timeout, 1800, 'timeout')) : await api(`/api/v1/scenes/renders/${encodeURIComponent(id)}`);
   console.log(JSON.stringify(detail, null, 2));
   if (args.output) {
     if (detail.render.status !== 'completed' || !detail.render.audioUrl) fail('The scene render is not complete yet');
@@ -848,13 +848,13 @@ async function cmdSceneStatus(args) {
 
 async function cmdSceneRenders(args) {
   const limit = Math.floor(positiveNumber(args.limit, 20, 'limit'));
-  const { renders } = await api('/api/scenes/renders');
+  const { renders } = await api('/api/v1/scenes/renders');
   console.log(JSON.stringify(renders.slice(0, limit), null, 2));
 }
 
 async function cmdSceneDelete(args) {
   const id = positionalId(args, 'scene-delete <projectId>');
-  await api(`/api/scenes/projects/${id}`, { method: 'DELETE' });
+  await api(`/api/v1/scenes/projects/${id}`, { method: 'DELETE' });
   console.log(`Deleted Sound Scenes project ${args._[0]}`);
 }
 
@@ -872,11 +872,11 @@ Usage: node uydi.mjs <command> [options]
                           List voices and full descriptions (--all reads every system page plus my voices)
   find-voices --query "warm narrator" [--source all|system|user] [--language code]
     [--gender male|female|unknown] [--age child|young|adult|senior|unknown] [--min-age n] [--max-age n]
-    [--scenario text] [--kind value] [--provider qwen|cosyvoice] [--status ready] [--match all|any] [--limit n]
+    [--scenario text] [--kind value] [--provider uydi|cosyvoice] [--status ready] [--match all|any] [--limit n]
                           Rank catalog matches with description evidence (English/Chinese keywords)
   delete-voice <id>       Delete a voice
-  design --name <n> --prompt <desc> --preview-text <t> [--provider qwen|cosyvoice] [-o preview.wav]
-  clone --name <n> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider qwen|cosyvoice] [--language code]
+  design --name <n> --prompt <desc> --preview-text <t> [--provider uydi] [-o preview.wav]
+  clone --name <n> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider uydi] [--language code]
   tts --voice <voiceId> --text "text" -o out.wav [--voice-type system --language en]
   history [--limit n]     Synthesis history
   system-voices [--language <code|all>] [--all] [--search text] [--gender value] [--age value] [--scenario value] [--limit n]

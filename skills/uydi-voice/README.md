@@ -15,22 +15,29 @@ Qoder, or another supported agent:
 npx skills add lvyinchao/uydi-voice-skill --skill uydi-voice
 ```
 
-Browse the listing at https://skills.sh/lvyinchao/uydi-voice-skill/uydi-voice.
+Browse the listing at [skills.sh](https://www.skills.sh/lvyinchao/uydi-voice-skill/uydi-voice).
 
 ### ClawHub
 
-After the public listing is available:
+Install the [ClawHub listing](https://clawhub.ai/lvyinchao/skills/uydi-voice) into your OpenClaw workspace:
 
 ```bash
-clawhub install uydi-voice
+clawhub install @lvyinchao/uydi-voice
 ```
 
 ### Qoder CLI
 
-Install the marketplace listing from Qoder Marketplace, or download the official archive
-from `https://uydi.com/downloads/uydi-voice-skill.zip`, extract it into
-`~/.qoder/skills/` (the archive already contains the `uydi-voice/` folder), and restart
-or reload Qoder CLI.
+Install the official ZIP in the current project, then reload Qoder:
+
+```bash
+qodercli skills install --scope workspace https://uydi.com/downloads/uydi-voice-skill.zip
+```
+
+For manual installation, extract the ZIP into your agent’s skills directory. It contains the complete `uydi-voice/` folder.
+
+## MCP connector
+
+To connect Codex, Claude Code, Cursor or Claude Desktop, follow the [MCP installation guide](https://uydi.com/api-docs#install-mcp). The local connector exposes credit checks, voice discovery, speech synthesis, history and WAV downloads. It accepts your existing Skill sign-in or a scoped personal token. You can [download the desktop extension](https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.4.0/uydi-voice-1.4.0.mcpb) directly.
 
 ## Use
 

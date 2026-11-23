@@ -54,7 +54,7 @@ Search flags:
 | `--age child\|young\|adult\|senior\|unknown` | Catalog age group |
 | `--min-age n --max-age n` | Numeric age bounds; unknown numeric ages are excluded |
 | `--scenario <text>` | Case-insensitive substring of the catalog scenario |
-| `--provider qwen\|cosyvoice` | Provider filter |
+| `--provider uydi\|cosyvoice` | Provider filter |
 | `--kind <value>` | Such as design, clone, system or basic |
 | `--status ready` | Exclude personal voices not ready for synthesis |
 | `--query <text>` | Names, IDs, description/style and use-case keywords |
@@ -86,5 +86,5 @@ the returned record. For synthesis/Canvas, select a `ready` voice and preserve i
 `voiceType`; for system TTS always specify the language:
 
 ```bash
-node scripts/uydi.mjs tts --voice qwen3:Elias --voice-type system --language en --text "Hello." -o elias.wav
+node scripts/uydi.mjs tts --voice q31-flash-beth --voice-type system --language en --text "Hello." -o beth.wav
 ```

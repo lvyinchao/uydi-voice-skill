@@ -1,0 +1,17 @@
+{
+  "manifest_version": "0.3",
+  "name": "uydi-voice",
+  "display_name": "Uydi Voice",
+  "version": "1.4.0",
+  "description": "Search voices, check credits, generate speech and save WAV recordings with your Uydi account.",
+  "author": { "name": "Uydi", "url": "https://uydi.com" },
+  "homepage": "https://uydi.com/api-docs#install-mcp",
+  "server": {
+    "type": "node",
+    "entry_point": "server.mjs",
+    "mcp_config": { "command": "node", "args": ["${__dirname}/server.mjs"], "env": { "UYDI_API_TOKEN": "${user_config.api_token}" } }
+  },
+  "user_config": {
+    "api_token": { "type": "string", "title": "Uydi personal API token", "description": "Optional if you have already signed in with the Uydi Voice Skill.", "required": false, "sensitive": true, "default": "" }
+  }
+}

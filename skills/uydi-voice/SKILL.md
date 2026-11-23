@@ -11,7 +11,7 @@ description: >
   synthesis and scene history. It requires Node.js 18+
   and a one-time OAuth approval in the user's browser.
 metadata:
-  version: "1.3.2"
+  version: "1.4.0"
   openclaw:
     requires:
       bins:
@@ -35,6 +35,8 @@ all through a single zero-dependency CLI script.
 - Node.js 18 or newer (`node --version`) — the script uses only built-in modules.
 - A Uydi account (register free at https://uydi.com).
 - All commands run as: `node scripts/uydi.mjs <command>` (relative to this skill directory).
+
+For installation and local MCP client setup, see the [Uydi API guide](https://uydi.com/api-docs#install-mcp). The MCP server can reuse this Skill’s sign-in.
 
 ## What the skill can do
 
@@ -114,7 +116,7 @@ node scripts/uydi.mjs design --name "Warm Narrator" \
 # Clone a voice from a 10-20s clean speech sample (wav/mp3/m4a, costs credits):
 node scripts/uydi.mjs clone --name "My Voice" --file sample.wav --rights-basis self --confirm-rights
 # Malay / Filipino / Arabic: choose ms / fil / ar when creating the clone
-node scripts/uydi.mjs clone --name "Malay Voice" --file sample.wav --provider qwen --language ms --rights-basis self --confirm-rights
+node scripts/uydi.mjs clone --name "Malay Voice" --file sample.wav --provider uydi --language ms --rights-basis self --confirm-rights
 
 # Synthesize speech with any voice (1 credit / 10 chars, max 2000 chars per run):
 node scripts/uydi.mjs tts --voice <voiceId> --text "Text to speak, any language." -o out.wav
@@ -159,14 +161,14 @@ node scripts/uydi.mjs scene-delete <projectId>
 
 Read [references/sound-scenes.md](references/sound-scenes.md) for the JSON schema,
 sample dialogue/soundscape/music prompts, prompt optimization, automatic quote handling, and
-recovery workflow. Sound Scenes use Qwen Audio 3.1 TTS Next; the optional prompt
-optimizer uses Qwen 3.8 Flash when available.
+recovery workflow. Sound Scenes use UYDI Audio 3.1 TTS Next; the optional prompt
+optimizer uses UYDI 3.8 Flash when available.
 
 For the editable JSON schema, language codes, voice selection, optimistic versioning,
 credit checks, background rendering, and safe retry behavior, read
 [references/voice-canvas.md](references/voice-canvas.md) before using Canvas commands.
 
-Optional flags: `--provider qwen|cosyvoice` on design/clone (default `qwen`).
+New designed and cloned voices use `--provider uydi` by default.
 Design descriptions are at most 500 characters; preview text is 15–200 characters
 in Chinese or English. Pass `--language zh|en` to choose a design preview language.
 Read each saved voice's actual supported languages before synthesis.

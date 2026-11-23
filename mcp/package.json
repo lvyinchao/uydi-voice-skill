@@ -1,0 +1,34 @@
+{
+  "name": "uydi-voice-mcp",
+  "version": "1.4.0",
+  "description": "Local MCP server for the Uydi voice API",
+  "type": "module",
+  "bin": {
+    "uydi-voice-mcp": "server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "homepage": "https://uydi.com/api-docs#install-mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lvyinchao/uydi-voice-skill.git",
+    "directory": "mcp"
+  },
+  "mcpName": "io.github.lvyinchao/uydi-voice",
+  "files": [
+    "server.mjs",
+    "README.md",
+    "npm-shrinkwrap.json"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0"
+  }
+}

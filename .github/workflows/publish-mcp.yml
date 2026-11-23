@@ -1,0 +1,24 @@
+name: Publish Uydi Voice to the MCP Registry
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install the registry publisher
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --location --retry 3 --output publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.15/mcp-publisher_linux_amd64.tar.gz
+          echo '8beca8143ae8a034c87c99a57e8cb1b6c2cee7874fcf8a20a8adbda84b291b5e  publisher.tar.gz' | sha256sum --check
+          tar xzf publisher.tar.gz mcp-publisher
+      - name: Verify the published extension and register it
+        run: |
+          asset=$(jq -r '.packages[0].identifier' mcp/server.json)
+          digest=$(jq -r '.packages[0].fileSha256' mcp/server.json)
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/uydi.mcpb" "$asset"
+          echo "$digest  $RUNNER_TEMP/uydi.mcpb" | sha256sum --check
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$RUNNER_TEMP/mcp-publisher" publish mcp/server.json
