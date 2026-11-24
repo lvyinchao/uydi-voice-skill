@@ -37,7 +37,7 @@ For manual installation, extract the ZIP into your agent’s skills directory. I
 
 ## MCP connector
 
-To connect Codex, Claude Code, Cursor or Claude Desktop, follow the [MCP installation guide](https://uydi.com/api-docs#install-mcp). The local connector exposes credit checks, voice discovery, speech synthesis, history and WAV downloads. It accepts your existing Skill sign-in or a scoped personal token. You can [download the desktop extension](https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.4.0/uydi-voice-1.4.0.mcpb) directly.
+To connect Codex, Claude Code, Cursor or Claude Desktop, follow the [MCP installation guide](https://uydi.com/api-docs#install-mcp). The local connector supports transcription, credit checks, voice discovery, speech synthesis, history and WAV downloads. It accepts your existing Skill sign-in or a scoped personal token. You can [download the desktop extension](https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.5.0/uydi-voice-1.5.0.mcpb) directly.
 
 ## Use
 
@@ -77,3 +77,7 @@ steps.
   `history`, `voices`, or the Canvas render status.
 - The skill is a zero-dependency Node.js script with no install hooks. Its only optional
   setting is `UYDI_BASE_URL`, intended for development deployments.
+
+## Transcribe a recording
+
+Use the [speech recognition workflow](references/transcription.md) to quote a local recording, submit it with a saved retry key, and retrieve text and timing. Both the Skill and the MCP connector accept standard mono 16 kHz PCM16 WAV directly. Install ffmpeg to convert other local audio or video files automatically.

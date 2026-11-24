@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.lvyinchao/uydi-voice",
   "title": "Uydi Voice",
-  "description": "Search voices, check credits, synthesize speech and save WAV files with your Uydi account.",
-  "version": "1.4.0",
+  "description": "Transcribe recordings, find voices, check credits, synthesize speech and save WAV audio.",
+  "version": "1.5.0",
   "websiteUrl": "https://uydi.com/api-docs#install-mcp",
   "repository": {
     "url": "https://github.com/lvyinchao/uydi-voice-skill",
@@ -12,8 +12,8 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.4.0/uydi-voice-1.4.0.mcpb",
-      "fileSha256": "7cf8ffc423d9a372b57086cc4c473b6f54aec8499facf54fc7588fb3e521a9fd",
+      "identifier": "https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.5.0/uydi-voice-1.5.0.mcpb",
+      "fileSha256": "39897908435493122ebe63a8d3c3415bacf850f629c0849d8651251d5b0d2343",
       "transport": {
         "type": "stdio"
       }

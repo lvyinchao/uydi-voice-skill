@@ -5,13 +5,13 @@ description: >
   voice sample, synthesize narration, create expressive sound scenes, and produce multi-voice Voice Canvas projects
   with the Uydi voice platform
   (https://uydi.com). Use it when a user asks to create or describe a voice, clone
-  their own voice from a recording, convert text to speech, generate narration audio,
+  their own voice from a recording, transcribe recordings into text, convert text to speech, generate narration audio,
   create dialogue, sound effects, ambience or music; arrange multiple speakers or
   languages into one audio file; list or manage Uydi voices and their descriptions; find voices by language, gender, age, style or use case; check credits; or review
   synthesis and scene history. It requires Node.js 18+
   and a one-time OAuth approval in the user's browser.
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   openclaw:
     requires:
       bins:
@@ -27,7 +27,7 @@ metadata:
 # Uydi Voice
 
 Use the Uydi voice platform from any agent: voice design, authorized voice cloning,
-text-to-speech, freestyle sound-scene creation, and multi-voice Voice Canvas production,
+speech-to-text transcription, text-to-speech, freestyle sound-scene creation, and multi-voice Voice Canvas production,
 all through a single zero-dependency CLI script.
 
 ## Requirements
@@ -43,6 +43,7 @@ For installation and local MCP client setup, see the [Uydi API guide](https://uy
 - **Design** a new AI voice from a natural-language brief and generate a WAV preview.
 - **Clone** a voice from a 10–20 second WAV, MP3, or M4A sample when the user owns the
   voice or has explicit permission.
+- **Transcribe** recordings using Message for short clips or File for longer recordings. Get a server-verified quote, submit once with a saved key, then read the transcript and timed segments. Follow the [transcription commands](references/transcription.md).
 - **Synthesize** speech from text with a selected Uydi voice and save a WAV file.
 - **Discover voices** across the complete system catalog and this account's personal library, with full descriptions, filters and keyword match evidence.
 - **Produce a Voice Canvas** from an ordered sequence of language-aware voices, scripts,
@@ -243,6 +244,7 @@ Read each saved voice's actual supported languages before synthesis.
 
 ## Version history
 
+- **1.5.0** — Added transcription models, upload quotes, idempotent submission, results and history.
 - **1.3.2** — Default task and cloning authorization for agents and bots: execute requested skill/API work, fill clone rights parameters and apply credit deductions without repeated confirmations; retain live quotes, scopes and idempotency.
 
 - **1.3.1** — Restores the deployed Sound Scenes workflow and current voice design API; aligns all installation packages and references.

@@ -15,6 +15,11 @@ test('stdio tools use the authenticated API and write validated WAVs', async t =
   const scratch = await mkdtemp(join(tmpdir(), 'uydi-mcp-test-'));
   t.after(() => rm(scratch, { force: true, recursive: true }));
   const wav = Buffer.from('524946462600000057415645666d74201000000001000100c05d000080bb00000200100064617461020000000000', 'hex');
+  const asrWav = Buffer.from(wav);
+  asrWav.writeUInt32LE(16000, 24);
+  asrWav.writeUInt32LE(32000, 28);
+  const transcript = { id: 'job-1', text: 'Hello', status: 'completed', segments: [{ startMs: 0, endMs: 100, text: 'Hello' }] };
+  const asrQuote = { id: 'quote-1', credits: 1 };
   const calls = [];
   const api = createServer(async (req, res) => {
     const chunks = [];
@@ -25,6 +30,20 @@ test('stdio tools use the authenticated API and write validated WAVs', async t =
     if (req.headers.authorization !== 'Bearer fixture-token') return json({ error: 'Invalid token' }, 401);
     const url = new URL(req.url, 'http://127.0.0.1');
     switch (url.pathname) {
+      case '/api/v1/transcriptions/config': return json({ models: ['message', 'file'] });
+      case '/api/v1/transcriptions/quote': {
+        assert.deepEqual(Buffer.concat(chunks), asrWav);
+        assert.equal(req.headers['content-type'], 'audio/wav');
+        assert.equal(Number(req.headers['content-length']), asrWav.length);
+        return json({ quote: asrQuote }, 201);
+      }
+      case '/api/v1/transcriptions': {
+        if (req.method === 'GET') return json({ transcriptions: [transcript] });
+        assert.equal(req.headers['idempotency-key'], 'asr-test-key');
+        assert.deepEqual(JSON.parse(body), { quoteId: 'quote-1', quotedCredits: 1 });
+        return json({ transcription: { id: 'job-1', status: 'processing' } }, 202);
+      }
+      case '/api/v1/transcriptions/job-1': return json({ transcription: transcript });
       case '/api/v1/credits': return json({ balance: 100, plan: 'free', pricing: { ttsUnitChars: 10 }, ledger: ['private detail'] });
       case '/api/v1/system-voices': return json({ voices: [{ id: 'voice-en' }], nextCursor: 1 });
       case '/api/v1/voices': return json({ error: 'Missing scope' }, 403);
@@ -54,7 +73,7 @@ test('stdio tools use the authenticated API and write validated WAVs', async t =
   }
   const client = await connect();
   const definitions = (await client.listTools()).tools;
-  assert.equal(definitions.length, 7);
+  assert.equal(definitions.length, 12);
   assert.equal(definitions.find(tool => tool.name === 'uydi_synthesize').annotations.readOnlyHint, false);
   const call = async (name, args = {}) => {
     const result = await client.callTool({ name: 'uydi_' + name, arguments: args });
@@ -83,6 +102,17 @@ test('stdio tools use the authenticated API and write validated WAVs', async t =
     assert.ok(result.isError);
   }
   assert.equal((await readdir(output)).length, 1);
+  const source = join(scratch, 'short.wav');
+  await writeFile(source, asrWav);
+  assert.equal((await call('asr_models')).models.length, 2);
+  for (const [model, id] of [['message', 'uydi-audio-3.1-asr-flash-message'], ['file', 'uydi-audio-3.1-asr-flash-filetrans']]) {
+    assert.deepEqual((await call('asr_quote', { filePath: source, model })).quote, asrQuote);
+    assert.equal(new URL(calls.at(-1).path, origin).searchParams.get('model'), id);
+  }
+  const submit = { quoteId: asrQuote.id, quotedCredits: asrQuote.credits, idempotencyKey: 'asr-test-key' };
+  for (let attempt = 0; attempt < 2; attempt++) assert.equal((await call('asr_submit', submit)).transcription.id, 'job-1');
+  assert.deepEqual((await call('asr_status', { transcriptionId: 'job-1' })).transcription, transcript);
+  assert.deepEqual((await call('asr_history')).transcriptions, [transcript]);
   const before = calls.length;
   for (const path of ['https://example.org/tts.wav', '../outside.wav', '/api/v1/audio/tts/../foo.wav']) {
     const result = await client.callTool({ name: 'uydi_download_wav', arguments: { audioUrl: path } });

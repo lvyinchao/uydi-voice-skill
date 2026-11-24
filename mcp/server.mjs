@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import { asrAudio, asrModelId, asrModels } from './asr-audio.mjs';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -34,12 +35,13 @@ async function accessToken() {
   throw new Error('Sign in with the Uydi Skill or set UYDI_API_TOKEN in the local MCP host.');
 }
 
-async function request(path, signal, { body, idempotencyKey, audio = false } = {}) {
+async function request(path, signal, { body, wav, idempotencyKey, audio = false } = {}) {
   const headers = { Authorization: 'Bearer ' + await accessToken(), Accept: audio ? 'audio/wav' : 'application/json' };
+  if (wav) headers['Content-Type'] = 'audio/wav';
   if (body) headers['Content-Type'] = 'application/json';
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   const response = await fetch(new URL(path, base), {
-    method: body ? 'POST' : 'GET', headers, body: body && JSON.stringify(body), redirect: 'error', signal,
+    method: body || wav ? 'POST' : 'GET', headers, body: wav ?? (body && JSON.stringify(body)), redirect: 'error', signal,
   });
   if (!response.ok) {
     if (response.status === 401) throw new Error('Uydi sign-in expired or the token is invalid. Sign in again or replace the local token.');
@@ -77,7 +79,7 @@ async function saveWav(path, signal) {
 }
 
 serveStdio(() => {
-  const server = new McpServer({ name: 'uydi-voice', version: '1.4.0' }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: 'uydi-voice', version: '1.5.0' }, { capabilities: { tools: {} } });
   function tool(name, description, inputSchema, run, annotations = readOnly) {
     server.registerTool(name, { description, inputSchema, annotations }, async (args, ctx) => {
       const timeout = AbortSignal.timeout(240_000);
@@ -113,6 +115,25 @@ serveStdio(() => {
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   tool('uydi_synthesis_status', 'Recover the result of a previous speech request. Free. Requires synthesis:write.',
     z.object({ idempotencyKey: key }), ({ idempotencyKey }, signal) => request('/api/v1/operations/synthesize/' + encodeURIComponent(idempotencyKey), signal));
+  tool('uydi_asr_models', 'List available speech recognition models, limits and credit rates. Free. Requires transcription:read.', z.object({}),
+    (_, signal) => request('/api/v1/transcriptions/config', signal));
+  tool('uydi_asr_quote', 'Upload the specified local recording to Uydi for a free transcription quote. Message accepts up to 60 seconds and File up to 30 minutes. Other media formats need local ffmpeg. Requires transcription:write.',
+    z.object({ model: z.enum(['message', 'file', asrModels.message, asrModels.file]),
+      filePath: z.string().min(1).refine(isAbsolute, 'Use the absolute path to the recording the user selected.') }),
+    async ({ model, filePath }, signal) => {
+      const id = asrModelId(model);
+      const wav = await asrAudio(filePath, id, signal);
+      return request('/api/v1/transcriptions/quote?model=' + encodeURIComponent(id), signal, { wav });
+    }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  tool('uydi_asr_submit', 'Start a transcription using the exact quote and Uydi credits. Save a key first. After a lost response retry with the same quote ID, credit amount and key. Requires transcription:write.',
+    z.object({ quoteId: z.string().min(1).max(160), quotedCredits: z.number().int().positive(), idempotencyKey: key }),
+    ({ idempotencyKey, ...body }, signal) => request('/api/v1/transcriptions', signal, { body, idempotencyKey }),
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  tool('uydi_asr_status', 'Read a prior transcription, including recognized text and timed segments when available. Poll this tool while processing. Free. Requires transcription:read.',
+    z.object({ transcriptionId: z.string().min(1).max(160) }),
+    ({ transcriptionId }, signal) => request('/api/v1/transcriptions/' + encodeURIComponent(transcriptionId), signal));
+  tool('uydi_asr_history', 'List recent transcriptions on this account. Free. Requires transcription:read.', z.object({}),
+    (_, signal) => request('/api/v1/transcriptions', signal));
   tool('uydi_download_wav', 'Save a Uydi speech recording as a new WAV in the local Downloads/Uydi folder. Requires synthesis:read.',
     z.object({ audioUrl: recording }), ({ audioUrl }, signal) => saveWav(audioUrl, signal),
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
