@@ -2,8 +2,8 @@
   "manifest_version": "0.3",
   "name": "uydi-voice",
   "display_name": "Uydi Voice",
-  "version": "1.4.0",
-  "description": "Search voices, check credits, generate speech and save WAV recordings with your Uydi account.",
+  "version": "1.5.0",
+  "description": "Transcribe local recordings, search voices, check credits, synthesize speech and save WAV audio.",
   "author": { "name": "Uydi", "url": "https://uydi.com" },
   "homepage": "https://uydi.com/api-docs#install-mcp",
   "server": {

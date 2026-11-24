@@ -1,7 +1,7 @@
 # Uydi Voice Skill
 
 Give an AI agent access to Uydi's voice design, authorized voice cloning, text-to-speech,
-freestyle sound scenes, multi-voice Voice Canvas production, voice management, credit
+speech-to-text transcription, freestyle sound scenes, multi-voice Voice Canvas production, voice management, credit
 balance, and generation history workflows.
 
 ## Install
@@ -37,7 +37,7 @@ For manual installation, extract the ZIP into your agent’s skills directory. I
 
 ## MCP connector
 
-To connect Codex, Claude Code, Cursor or Claude Desktop, follow the [MCP installation guide](https://uydi.com/api-docs#install-mcp). The local connector exposes credit checks, voice discovery, speech synthesis, history and WAV downloads. It accepts your existing Skill sign-in or a scoped personal token. You can [download the desktop extension](https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.4.0/uydi-voice-1.4.0.mcpb) directly.
+To connect Codex, Claude Code, Cursor or Claude Desktop, follow the [MCP installation guide](https://uydi.com/api-docs#install-mcp). The local connector supports transcription, credit checks, voice discovery, speech synthesis, history and WAV downloads. It accepts your existing Skill sign-in or a scoped personal token. You can [download the desktop extension](https://github.com/lvyinchao/uydi-voice-skill/releases/download/v1.5.0/uydi-voice-1.5.0.mcpb) directly.
 
 ## Use
 
@@ -70,6 +70,12 @@ node scripts/uydi.mjs scene-generate <projectId> --quoted-credits <exact-estimat
 
 Read [SKILL.md](skills/uydi-voice/SKILL.md) and [references/sound-scenes.md](skills/uydi-voice/references/sound-scenes.md) for
 the complete command reference, example scenes, safeguards, and validation steps.
+
+## Speech recognition
+
+Choose Message for voice notes up to 60 seconds or File for recordings up to 30 minutes. Get a free upload quote based on the actual duration, submit its exact amount with a saved idempotency key, then read the transcript and any timed segments. The Skill CLI and MCP connector accept a local 16 kHz mono PCM16 WAV directly or convert other audio and video formats with ffmpeg.
+
+See the [transcription guide](skills/uydi-voice/references/transcription.md) and [public API reference](https://uydi.com/api-docs#transcription).
 
 ## Privacy, consent, and costs
 

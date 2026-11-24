@@ -6,6 +6,7 @@
  * 用法：node uydi.mjs <command> [options]，详见 SKILL.md 或 `node uydi.mjs help`。
  */
 import { createServer } from 'node:http';
+import { asrAudio, asrModelId } from './asr-audio.mjs';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -39,7 +40,7 @@ function saveToken(accessToken) {
 
 // ---------- HTTP 封装 ----------
 
-async function api(path, { method = 'GET', json, form, raw = false, auth = true, idempotencyKey } = {}) {
+async function api(path, { method = 'GET', json, form, wav, raw = false, auth = true, idempotencyKey } = {}) {
   const headers = { Accept: 'application/json' };
   if (auth) {
     const token = loadToken();
@@ -51,6 +52,9 @@ async function api(path, { method = 'GET', json, form, raw = false, auth = true,
   if (json !== undefined) {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(json);
+  } else if (wav !== undefined) {
+    headers['Content-Type'] = 'audio/wav';
+    body = wav;
   } else if (form !== undefined) {
     body = form; // FormData 由 fetch 自动设置 Content-Type
   }
@@ -858,9 +862,46 @@ async function cmdSceneDelete(args) {
   console.log(`Deleted Sound Scenes project ${args._[0]}`);
 }
 
+async function cmdAsrQuote(args) {
+  if (!args.model || typeof args.file !== 'string') fail('Usage: asr-quote --model message|file --file <local-media>');
+  const model = asrModelId(args.model);
+  const wav = await asrAudio(args.file, model);
+  const quote = await api('/api/v1/transcriptions/quote?model=' + encodeURIComponent(model), { method: 'POST', wav });
+  console.log(JSON.stringify(quote, null, 2));
+}
+
+async function cmdAsrSubmit(args) {
+  const quoteId = positionalId(args, 'asr-submit <quoteId> --quoted-credits <n> --key <saved-key>');
+  const quotedCredits = Number(args['quoted-credits']);
+  if (typeof args['quoted-credits'] !== 'string' || !Number.isSafeInteger(quotedCredits) || quotedCredits < 1)
+    fail('Pass the exact positive integer returned as quote.credits with --quoted-credits.');
+  if (typeof args.key !== 'string' || !/^[A-Za-z0-9._:-]{8,200}$/.test(args.key))
+    fail('Pass a saved 8–200 character --key. Retry a lost response with the same quote ID, credit amount and key.');
+  const result = await api('/api/v1/transcriptions', {
+    method: 'POST', idempotencyKey: args.key, json: { quoteId, quotedCredits },
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdAsrStatus(args) {
+  const id = positionalId(args, 'asr-status <transcriptionId> [--wait] [--timeout seconds]');
+  const deadline = Date.now() + positiveNumber(args.timeout, 600, 'timeout') * 1000;
+  let interval = 2000;
+  for (;;) {
+    const result = await api('/api/v1/transcriptions/' + encodeURIComponent(id));
+    if (!args.wait || result.transcription.status !== 'processing') {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (Date.now() >= deadline) fail('Still processing. Resume with: asr-status ' + id + ' --wait');
+    await sleep(Math.min(interval, deadline - Date.now()));
+    interval = Math.min(interval * 2, 10000);
+  }
+}
+
 // ---------- 入口 ----------
 
-const HELP = `Uydi Voice CLI — voice design / cloning / TTS / Sound Scenes / Voice Canvas (${BASE_URL})
+const HELP = `Uydi Voice CLI — voice design / cloning / TTS / transcription / Sound Scenes / Voice Canvas (${BASE_URL})
 
 Usage: node uydi.mjs <command> [options]
 
@@ -878,6 +919,11 @@ Usage: node uydi.mjs <command> [options]
   design --name <n> --prompt <desc> --preview-text <t> [--provider uydi] [-o preview.wav]
   clone --name <n> --file <audio> --rights-basis self|authorized-adult --confirm-rights [--provider uydi] [--language code]
   tts --voice <voiceId> --text "text" -o out.wav [--voice-type system --language en]
+  asr-models              Available transcription models, duration limits and pricing
+  asr-quote --model message|file --file <local-media>  Upload audio and obtain a free quote
+  asr-submit <quoteId> --quoted-credits <n> --key <saved-key>
+  asr-status <transcriptionId> [--wait] [--timeout seconds]  Read the transcript and timed segments
+  asr-history             Recent transcriptions
   history [--limit n]     Synthesis history
   system-voices [--language <code|all>] [--all] [--search text] [--gender value] [--age value] [--scenario value] [--limit n]
   canvas-list             List Voice Canvas projects
@@ -903,6 +949,11 @@ Usage: node uydi.mjs <command> [options]
 Env: UYDI_BASE_URL overrides the service URL (default https://uydi.com)`;
 
 const COMMANDS = {
+  'asr-models': async () => console.log(JSON.stringify(await api('/api/v1/transcriptions/config'), null, 2)),
+  'asr-quote': cmdAsrQuote,
+  'asr-submit': cmdAsrSubmit,
+  'asr-status': cmdAsrStatus,
+  'asr-history': async () => console.log(JSON.stringify(await api('/api/v1/transcriptions'), null, 2)),
   login: cmdLogin,
   logout: cmdLogout,
   whoami: cmdWhoami,
